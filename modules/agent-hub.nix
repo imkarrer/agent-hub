@@ -56,7 +56,13 @@ in
 
       port = lib.mkOption {
         type = lib.types.port;
-        default = 8091;
+        # This is a shared-host allocation, not a free choice: on ac-box the
+        # assetto tenant reserves the contiguous HTTP block 8081-8096 (8081 +
+        # 16 lobby slots). 8091 sat inside that block. 8100 is outside every
+        # reserved range on that box as of the ac-box port survey -- if the
+        # platform's port registry (homelab/modules/tenant/) ever claims 8100
+        # for something else, this needs to move again, not just be trusted.
+        default = 8100;
       };
 
       contextSize = lib.mkOption {
