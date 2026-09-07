@@ -30,7 +30,8 @@ not global `allowedTCPPorts`.
 no code execution and no repo access. Goal: prove a coding-capable model runs and answers
 at an acceptable context size before adding anything that can act on a repo.
 
-**Phase 2 (2a proven out on this dev box): the autonomous runner.**
+**Phase 2 (2a and 2b proven out on this dev box; 2c/ac-box not started): the autonomous
+runner.**
 Repo + task -> sandboxed edit -> draft PR, via [`aider`](https://aider.chat) (not
 OpenHands or OpenCode -- see below) pointed at the Phase 1 server as its LLM backend.
 This is a materially bigger security surface than Phase 1 or than anything in
@@ -79,9 +80,29 @@ backend, not spare parallelism to coordinate).
   Multi-file or multi-turn tasks will scale up from there; this is the number to compare
   against once ac-box's bigger model is in the loop.
 
-Not done yet: `sops-nix` credential storage, folding the proven script into
-`services.agent-hub.runner` in the NixOS module, any timer/webhook trigger (still
-manually invoked), and hardening the container's network beyond `--network host`.
+**2b (also proven out on this dev box): folded into the module.**
+`services.agent-hub.runner` (in `modules/agent-hub.nix`) now wraps `run-task.sh` as an
+installed `agent-hub-run-task <repo-url> <task> [base-branch] [test-cmd]` command, config-
+driven (`githubTokenFile`, `allowedRepos`, `llamaBaseUrl`, `runnerImage`) instead of
+ad hoc env vars. Still manually invoked -- no systemd service or trigger yet, on purpose.
+
+Two things worth knowing if you extend this module:
+- **The whole module is gated on the top-level `services.agent-hub.enable`, not just
+  `services.agent-hub.runner.enable`.** Missed this the first time while wiring 2b up --
+  `runner.enable = true` alone silently produced *zero* effect (no error, no package,
+  same store path as before) because the entire `config = lib.mkIf cfg.enable { ... }`
+  block never activated. If a sub-option's effects seem to vanish, check the parent
+  `enable` first.
+- `pkgs.writeShellApplication` runs ShellCheck on the generated script as part of the
+  build and fails the build on any warning. A `case "<repo list interpolated by Nix>"
+  in ... esac` pattern trips SC2194 (looks like a constant, "did you forget the $?")
+  even though the constant-ness is intentional (Nix baked it in) -- rewritten as a
+  plain bash array + loop instead, which both reads better and doesn't trip it.
+
+Not done yet: `sops-nix` credential storage (githubTokenFile currently points at a
+plain file, which is fine for this box's scratch-repo PAT but not for a real
+deployment), any timer/webhook trigger (still manually invoked), and hardening the
+container's network beyond `--network host`.
 
 ## Using this repo
 
@@ -90,7 +111,9 @@ nix develop            # llama-server, curl, jq available
 scripts/serve.sh /path/to/model.gguf     # manual smoke test, no systemd
 ```
 
-To manually exercise the Phase 2a runner (not wired into the module yet):
+To exercise the Phase 2 runner via the module (`services.agent-hub.enable`,
+`services.agent-hub.runner.enable`, `githubTokenFile`, `allowedRepos`, `llamaBaseUrl`
+set per host -- see `modules/agent-hub.nix` for the full option set):
 
 ```bash
 # Host prerequisite, outside this repo -- rootless Docker enabled via
@@ -99,6 +122,13 @@ To manually exercise the Phase 2a runner (not wired into the module yet):
 # not project config; the ac-box module will set this up properly.
 nix build .#runner-image && docker load -i result
 
+agent-hub-run-task <repo-url> "<task description>" [base-branch] [test-cmd]
+```
+
+Or bypass the module entirely and run the underlying script directly (useful without a
+full `nixos-rebuild`, e.g. iterating on `run-task.sh` itself):
+
+```bash
 GITHUB_TOKEN=<fine-grained PAT scoped to one repo> \
   scripts/run-task.sh <repo-url> "<task description>" [base-branch] [test-cmd]
 ```

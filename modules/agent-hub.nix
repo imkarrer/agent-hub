@@ -77,6 +77,51 @@ in
         description = "Extra llama-server CLI args, e.g. [ \"--flash-attn\" \"on\" ].";
       };
     };
+
+    runner = {
+      enable = lib.mkEnableOption ''
+        Sandboxed repo+task->PR runner: aider, in a rootless Docker
+        container, pointed at services.agent-hub.llm. Phase 2a --
+        manually invoked only, no systemd service/timer yet.
+      '';
+
+      githubTokenFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = ''
+          Path to a file containing a GitHub PAT scoped to allowedRepos
+          only, nothing broader. Decrypted via sops-nix in a real
+          deployment -- this option just needs a plain readable file
+          path at invocation time. No default: must be set per host.
+        '';
+      };
+
+      allowedRepos = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        description = ''
+          "owner/repo" strings this runner is allowed to touch. Defense
+          in depth on top of githubTokenFile's own PAT scoping -- empty
+          means nothing is allowed, not everything.
+        '';
+      };
+
+      llamaBaseUrl = lib.mkOption {
+        type = lib.types.str;
+        default = "http://${cfg.lanAddress}:${toString cfg.llm.port}/v1";
+        description = "OpenAI-compatible endpoint the runner's aider instance calls.";
+      };
+
+      runnerImage = lib.mkOption {
+        type = lib.types.str;
+        default = "agent-hub-runner:latest";
+        description = ''
+          Docker image tag for the sandbox (built via
+          `nix build .#runner-image && docker load -i result`, per the
+          README -- not built automatically by this module).
+        '';
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -129,10 +174,46 @@ in
       };
     };
 
+    environment.systemPackages = lib.optional cfg.runner.enable (
+      pkgs.writeShellApplication {
+        name = "agent-hub-run-task";
+        runtimeInputs = [ pkgs.docker pkgs.gnused ];
+        text = ''
+          repo_url="''${1:?usage: agent-hub-run-task <repo-url> <task> [base-branch] [test-cmd]}"
+
+          owner_repo=$(echo "$repo_url" | sed -E 's#^https://github.com/##; s#\.git$##')
+          allowed_repos=(${lib.concatStringsSep " " (map lib.escapeShellArg cfg.runner.allowedRepos)})
+          allowed=0
+          for r in "''${allowed_repos[@]}"; do
+            [ "$owner_repo" = "$r" ] && allowed=1
+          done
+          if [ "$allowed" != 1 ]; then
+            echo "refusing: '$owner_repo' is not in services.agent-hub.runner.allowedRepos" >&2
+            exit 1
+          fi
+
+          export GITHUB_TOKEN
+          GITHUB_TOKEN="$(cat ${lib.escapeShellArg (toString cfg.runner.githubTokenFile)})"
+          export GH_TOKEN="$GITHUB_TOKEN"
+          export LLAMA_BASE_URL=${lib.escapeShellArg cfg.runner.llamaBaseUrl}
+          export RUNNER_IMAGE=${lib.escapeShellArg cfg.runner.runnerImage}
+          exec ${../scripts/run-task.sh} "$@"
+        '';
+      }
+    );
+
     assertions = [
       {
         assertion = cfg.lanAddress != "0.0.0.0";
         message = "services.agent-hub.lanAddress must be the LAN IP, not 0.0.0.0.";
+      }
+      {
+        assertion = !cfg.runner.enable || cfg.runner.githubTokenFile != null;
+        message = "services.agent-hub.runner.githubTokenFile must be set when the runner is enabled.";
+      }
+      {
+        assertion = !cfg.runner.enable || cfg.runner.allowedRepos != [ ];
+        message = "services.agent-hub.runner.allowedRepos must be non-empty when the runner is enabled -- it defaults closed, not open.";
       }
     ];
   };
