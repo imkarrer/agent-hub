@@ -2,7 +2,16 @@
   description = "Local coding-agent host: CPU/RAM-bound LLM serving + agent harness. Prototype on WSL2 NixOS, deploy to ac-box.";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Pinned to match the deploy host (ac-box, nixos-26.05), not unstable --
+    # the module is written and verified against that channel's llama-cpp
+    # (version 9190). This pin only governs standalone use of this repo
+    # (`nix build`, `nix flake check`, `nix develop` here). The platform
+    # layer (homelab) owns nixpkgs for the actual deployment: when this flake
+    # is consumed as a tenant input there, it sets
+    # `inputs.agent-hub.inputs.nixpkgs.follows = "nixpkgs"` so agent-hub
+    # never drags its own nixpkgs into the host closure. Do not bump this
+    # independently of that host's channel.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 
   outputs = { self, nixpkgs }:

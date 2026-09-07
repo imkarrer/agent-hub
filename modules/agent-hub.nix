@@ -73,14 +73,43 @@ in
 
       threads = lib.mkOption {
         type = lib.types.int;
-        default = 0;
-        description = "CPU threads for inference. 0 lets llama.cpp auto-detect.";
+        # 0 (like llama-server's own default of -1) means "auto-detect and
+        # use every core llama.cpp can see" -- on ac-box that's all 56
+        # threads, which would starve the live Assetto Corsa race servers
+        # sharing the box. This default is a conservative, non-grabby
+        # placeholder for standalone/dev use (WSL2 prototype box), not a
+        # real capacity plan.
+        #
+        # On ac-box, the platform layer (homelab/modules/tenant/) is what
+        # actually owns CPU allocation: it assigns this tenant a share of
+        # homelab.host.capacity.cpuThreads via its tier (CPUWeight/
+        # AllowedCPUs on the tenant's slice), per the "tiers are shares, not
+        # absolute indices" rule. Whoever deploys this module must set this
+        # option to match the CPU count that slice actually grants agent-hub
+        # -- never to the host's total thread count, and never left at a
+        # value picked without checking the tier assignment.
+        default = 4;
+        description = ''
+          CPU threads for inference. Must be set to match the CPU allowance
+          the platform's tenant tier actually grants this service on the
+          deploy host, not left at a default guess and never llama.cpp's own
+          auto-detect-all-cores behavior (0 or negative).
+        '';
       };
 
       extraArgs = lib.mkOption {
         type = lib.types.listOf lib.types.str;
         default = [ ];
-        description = "Extra llama-server CLI args, e.g. [ \"--flash-attn\" \"on\" ].";
+        description = ''
+          Extra llama-server CLI args, e.g. [ "--flash-attn" "on" ].
+          Verified against nixpkgs nixos-26.05's llama-cpp package (version
+          9190, the deploy host's pin) via `llama-server --help`:
+          `-fa, --flash-attn [on|off|auto]` exists and takes an "on" value.
+          `--threads`, `--ctx-size`, `--host` and `--port` (used elsewhere in
+          this module) all exist in that build too. Re-check this comment
+          against `llama-server --help` if the pinned nixpkgs revision ever
+          moves.
+        '';
       };
     };
 
