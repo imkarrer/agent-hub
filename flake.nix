@@ -14,6 +14,8 @@
       nixosModules.agent-hub = import ./modules/agent-hub.nix;
       nixosModules.default = self.nixosModules.agent-hub;
 
+      packages.${system}.runner-image = import ./nix/runner-image.nix { inherit pkgs; };
+
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
           llama-cpp
