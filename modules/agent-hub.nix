@@ -160,6 +160,107 @@ in
           README -- not built automatically by this module).
         '';
       };
+
+      network = {
+        mode = lib.mkOption {
+          type = lib.types.enum [ "bridge" "host" ];
+          default = "bridge";
+          description = ''
+            How the sandbox container reaches the network. See
+            docs/network-isolation.md for the full analysis; the short
+            version:
+
+            "bridge" (the safe default): the container runs on a dedicated
+            Docker network (network.dockerNetworkName /
+            network.subnet), never the host's network namespace. A
+            DOCKER-USER iptables allowlist (provisioned by this module,
+            below) restricts that subnet to services.agent-hub.llm's
+            address:port plus network.githubCidrs on 443, default-deny
+            otherwise. Verified against ac-box's actual Docker daemon
+            (rootful, not rootless -- confirmed live 7 Sep 2026 via
+            `docker info` and process ownership) where standard
+            veth+bridge networking is mature and reliable, including
+            reaching a host-bound LAN address from a container.
+
+            "host" gives the container the whole host network namespace,
+            identical to the behaviour this option replaces. It is real
+            risk on a shared host, not neutral -- see
+            docs/network-isolation.md's option table -- so it is gated by
+            network.singleTenantHost below rather than offered as a plain
+            toggle.
+          '';
+        };
+
+        singleTenantHost = lib.mkOption {
+          type = lib.types.bool;
+          default = false;
+          description = ''
+            Explicit acknowledgement that this host runs no tenant other
+            than agent-hub, so network.mode = "host" is not handing the
+            model's sandbox reachability to services it has no business
+            touching. Must be set true (by whoever writes the host config,
+            never by this module's own default) before network.mode =
+            "host" is accepted -- see the assertion below. Defaults false
+            so an ac-box-style shared host fails closed if someone copies
+            a dev-box config that used "host" without re-reading this.
+          '';
+        };
+
+        dockerNetworkName = lib.mkOption {
+          type = lib.types.str;
+          default = "agent-hub-runner";
+          description = ''
+            Name of the dedicated Docker bridge network the runner uses
+            when network.mode = "bridge". Never shared with another
+            tenant's compose project network (e.g. ac-host_default) --
+            the DOCKER-USER egress rule below is scoped to
+            network.subnet specifically so it cannot accidentally apply
+            to, or be evaded via, a different network on the same bridge
+            driver.
+          '';
+        };
+
+        subnet = lib.mkOption {
+          type = lib.types.str;
+          default = "172.30.99.0/24";
+          description = ''
+            IPv4 subnet (CIDR) for network.dockerNetworkName, and the
+            source-match for the DOCKER-USER egress allowlist. Default is
+            clear of every Docker subnet observed live on ac-box on 7 Sep
+            2026 (`docker network inspect`): 172.17.0.0/16 (default
+            bridge), 172.18.0.0/16 (ac-host_default), 172.19.0.0/16
+            (ac-host-ci_default). That survey is host-specific and not
+            re-verified by this module -- confirm no collision with
+            `docker network inspect` before deploying to a different or
+            changed host, the same way llm.port's default documents that
+            it is a point-in-time allocation, not a derived value.
+          '';
+        };
+
+        githubCidrs = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [
+            "192.30.252.0/22"
+            "185.199.108.0/22"
+            "140.82.112.0/20"
+            "143.55.64.0/20"
+          ];
+          description = ''
+            IPv4 CIDRs allowed outbound on tcp/443 from
+            network.dockerNetworkName, sourced from
+            https://api.github.com/meta's "web"/"api"/"git" keys (fetched
+            7 Sep 2026 -- GitHub documents these ranges as subject to
+            change, so re-fetch and update before trusting this list
+            long-term). IPv6 is deliberately out of scope: the runner's
+            Docker network is IPv4-only (Docker user-defined bridges
+            don't get IPv6 unless explicitly enabled, and this module
+            never does), so there is no v6 egress path to allow or block.
+            tcp/22 (git-over-SSH) is not included -- run-task.sh only
+            ever clones "https://github.com/..." URLs, so allowing SSH
+            egress here would be a permission this runner has no use for.
+          '';
+        };
+      };
     };
   };
 
@@ -236,10 +337,65 @@ in
           export GH_TOKEN="$GITHUB_TOKEN"
           export LLAMA_BASE_URL=${lib.escapeShellArg cfg.runner.llamaBaseUrl}
           export RUNNER_IMAGE=${lib.escapeShellArg cfg.runner.runnerImage}
+          export RUNNER_NETWORK_MODE=${lib.escapeShellArg cfg.runner.network.mode}
+          export RUNNER_NETWORK_NAME=${lib.escapeShellArg cfg.runner.network.dockerNetworkName}
+          export RUNNER_NETWORK_SUBNET=${lib.escapeShellArg cfg.runner.network.subnet}
           exec ${../scripts/run-task.sh} "$@"
         '';
       }
     );
+
+    # Egress allowlist for services.agent-hub.runner.network.mode = "bridge",
+    # the safe default. See docs/network-isolation.md for why this shape
+    # (DOCKER-USER + a dedicated jump chain, not --network host) and how to
+    # verify it actually holds rather than trust it by reading this file.
+    #
+    # DOCKER-USER is dockerd's own documented hook for operator-added rules:
+    # dockerd creates it once (with a trailing `-j RETURN` so unmatched
+    # traffic falls through to Docker's normal processing) and never flushes
+    # it on daemon restart, but it is a GLOBAL chain shared by every Docker
+    # consumer on the box (ac-host_default, ac-host-ci_default, ...) -- so
+    # this must never flush DOCKER-USER itself, only ever add one idempotent
+    # jump rule scoped by source subnet into a chain that belongs entirely to
+    # agent-hub. Flushing DOCKER-USER outright would also delete dockerd's own
+    # trailing RETURN and could break every other tenant's container
+    # networking on the same host.
+    networking.firewall.extraCommands = lib.mkIf (cfg.runner.enable && cfg.runner.network.mode == "bridge") ''
+      iptables -N AGENT-HUB-RUNNER-EGRESS 2>/dev/null || true
+      iptables -F AGENT-HUB-RUNNER-EGRESS
+
+      # Return traffic for connections this chain already allowed out.
+      iptables -A AGENT-HUB-RUNNER-EGRESS -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+      # The one thing this sandbox actually needs to talk to.
+      iptables -A AGENT-HUB-RUNNER-EGRESS -p tcp -d ${lib.escapeShellArg cfg.lanAddress} --dport ${toString cfg.llm.port} -j ACCEPT
+
+      # DNS, unrestricted by destination: needed to resolve github.com, and
+      # not filtered further because Docker's embedded resolver may issue
+      # the upstream query from outside this subnet depending on version.
+      # Residual gap, not a hole: this permits hostname lookups, not
+      # arbitrary TCP/UDP payload delivery to a chosen host.
+      iptables -A AGENT-HUB-RUNNER-EGRESS -p udp --dport 53 -j ACCEPT
+      iptables -A AGENT-HUB-RUNNER-EGRESS -p tcp --dport 53 -j ACCEPT
+
+      # GitHub only, HTTPS only (run-task.sh never clones over SSH).
+      ${lib.concatMapStringsSep "\n" (cidr: ''
+        iptables -A AGENT-HUB-RUNNER-EGRESS -p tcp -d ${lib.escapeShellArg cidr} --dport 443 -j ACCEPT
+      '') cfg.runner.network.githubCidrs}
+
+      # Default deny: this is what makes it an allowlist. Also the property
+      # the run-task.sh preflight canary checks on every invocation.
+      iptables -A AGENT-HUB-RUNNER-EGRESS -j DROP
+
+      iptables -C DOCKER-USER -s ${lib.escapeShellArg cfg.runner.network.subnet} -j AGENT-HUB-RUNNER-EGRESS 2>/dev/null || \
+        iptables -I DOCKER-USER 1 -s ${lib.escapeShellArg cfg.runner.network.subnet} -j AGENT-HUB-RUNNER-EGRESS
+    '';
+
+    networking.firewall.extraStopCommands = lib.mkIf (cfg.runner.enable && cfg.runner.network.mode == "bridge") ''
+      iptables -D DOCKER-USER -s ${lib.escapeShellArg cfg.runner.network.subnet} -j AGENT-HUB-RUNNER-EGRESS 2>/dev/null || true
+      iptables -F AGENT-HUB-RUNNER-EGRESS 2>/dev/null || true
+      iptables -X AGENT-HUB-RUNNER-EGRESS 2>/dev/null || true
+    '';
 
     assertions = [
       {
@@ -253,6 +409,17 @@ in
       {
         assertion = !cfg.runner.enable || cfg.runner.allowedRepos != [ ];
         message = "services.agent-hub.runner.allowedRepos must be non-empty when the runner is enabled -- it defaults closed, not open.";
+      }
+      {
+        assertion = !cfg.runner.enable || cfg.runner.network.mode != "host" || cfg.runner.network.singleTenantHost;
+        message = ''
+          services.agent-hub.runner.network.mode = "host" gives the sandbox
+          the entire host network namespace -- every other tenant's
+          loopback- and wildcard-bound service included. Refusing to enable
+          it unless services.agent-hub.runner.network.singleTenantHost is
+          also set true, an explicit acknowledgement that no other tenant
+          shares this host. See docs/network-isolation.md.
+        '';
       }
     ];
   };

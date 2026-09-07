@@ -3,6 +3,21 @@
 # Everything that touches the repo or GitHub happens inside the
 # container; the host only launches it, applies resource/security
 # limits, and enforces the timeout.
+#
+# Networking (see docs/network-isolation.md for the full analysis):
+# RUNNER_NETWORK_MODE=bridge (the safe default, set by the module) puts the
+# container on a dedicated Docker network instead of the host's network
+# namespace, with a host-side DOCKER-USER iptables allowlist (provisioned by
+# modules/agent-hub.nix, not by this script) restricting that network's
+# egress to LLAMA_BASE_URL's host:port and github.com's published ranges on
+# 443. RUNNER_NETWORK_MODE=host reproduces the old --network host behaviour
+# and is only reachable when services.agent-hub.runner.network.singleTenantHost
+# is set true -- the module's own assertion refuses it otherwise. When
+# invoking this script directly (bypassing the module, per the README), an
+# unset RUNNER_NETWORK_MODE defaults to "bridge" here too, and there will be
+# no allowlist unless something else provisioned DOCKER-USER -- the preflight
+# canary below is what catches that rather than silently falling back to an
+# unfiltered network.
 set -euo pipefail
 
 REPO_URL="${1:?usage: run-task.sh <repo-url> <task> [base-branch] [test-cmd]}"
@@ -11,12 +26,6 @@ BASE_BRANCH="${3:-main}"
 TEST_CMD="${4:-}"
 
 : "${GITHUB_TOKEN:?set GITHUB_TOKEN to a PAT scoped to this one repo}"
-# NixOS's virtualisation.docker.rootless doesn't actually put dockerd in
-# its own network namespace (rootlesskit here shares the host's netns --
-# confirmed via /proc/*/ns/net), so host.docker.internal / bridge routing
-# to the host never resolves the way it does on Docker Desktop. --network
-# host (below) is what actually reaches llama-server; point this at
-# whatever real host IP/port it's bound to.
 : "${LLAMA_BASE_URL:=http://172.18.37.247:8091/v1}"
 : "${LLAMA_MODEL:=openai/local}"
 # llama-server doesn't require auth, but litellm (which aider uses under
@@ -25,6 +34,9 @@ TEST_CMD="${4:-}"
 : "${OPENAI_API_KEY:=sk-local-placeholder}"
 : "${RUNNER_IMAGE:=agent-hub-runner:latest}"
 : "${RUNNER_TIMEOUT:=1800}"
+: "${RUNNER_NETWORK_MODE:=bridge}"
+: "${RUNNER_NETWORK_NAME:=agent-hub-runner}"
+: "${RUNNER_NETWORK_SUBNET:=172.30.99.0/24}"
 
 WORKDIR="$(mktemp -d)"
 CONTAINER_NAME="agent-hub-runner-$$"
@@ -34,6 +46,58 @@ cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+
+case "$RUNNER_NETWORK_MODE" in
+  bridge)
+    docker network inspect "$RUNNER_NETWORK_NAME" >/dev/null 2>&1 || \
+      docker network create --subnet "$RUNNER_NETWORK_SUBNET" "$RUNNER_NETWORK_NAME" >/dev/null
+    DOCKER_NET_ARGS=(--network "$RUNNER_NETWORK_NAME")
+    ;;
+  host)
+    DOCKER_NET_ARGS=(--network host)
+    ;;
+  *)
+    echo "unknown RUNNER_NETWORK_MODE '$RUNNER_NETWORK_MODE' (expected bridge or host)" >&2
+    exit 1
+    ;;
+esac
+
+# Preflight canary: verify the isolation actually holds for THIS invocation
+# rather than trust the module's iptables rules are provisioned and correct.
+# Two checks, both must pass before any model-generated code runs:
+#   1. LLAMA_BASE_URL is reachable from the sandbox network -- catches the
+#      allowlist being too strict, or simply not provisioned at all under
+#      bridge mode (a `nixos-rebuild switch` that hasn't happened yet is a
+#      silent, confusing aider failure otherwise).
+#   2. A real external host outside every allowed range (1.1.1.1) is NOT
+#      reachable -- catches the allowlist being too loose, missing
+#      entirely, or this being run on a host where DOCKER-USER isn't wired
+#      the way modules/agent-hub.nix assumes. Skipped in host mode: with
+#      the whole host namespace shared, this would correctly fail every
+#      time and proves nothing.
+if [ "$RUNNER_NETWORK_MODE" = "bridge" ]; then
+  echo "preflight: checking llama-server reachability on '$RUNNER_NETWORK_NAME'..." >&2
+  if ! timeout 10 docker run --rm "${DOCKER_NET_ARGS[@]}" "$RUNNER_IMAGE" \
+      python3 -c "import urllib.request,sys; urllib.request.urlopen(sys.argv[1], timeout=5)" \
+      "$LLAMA_BASE_URL/models" >/dev/null 2>&1; then
+    echo "preflight FAILED: cannot reach $LLAMA_BASE_URL from '$RUNNER_NETWORK_NAME'." >&2
+    echo "Either the DOCKER-USER egress allowlist isn't provisioned yet (nixos-rebuild" >&2
+    echo "switch not applied) or it is wrongly blocking the one endpoint it should allow." >&2
+    echo "Refusing to run the task rather than let aider fail confusingly mid-run." >&2
+    echo "See docs/network-isolation.md." >&2
+    exit 1
+  fi
+
+  echo "preflight: checking default-deny egress actually blocks an unlisted host..." >&2
+  if timeout 10 docker run --rm "${DOCKER_NET_ARGS[@]}" "$RUNNER_IMAGE" \
+      python3 -c "import urllib.request; urllib.request.urlopen('http://1.1.1.1', timeout=5)" >/dev/null 2>&1; then
+    echo "preflight FAILED: '$RUNNER_NETWORK_NAME' can reach 1.1.1.1, which is outside" >&2
+    echo "every allowed destination. The egress allowlist is missing, misconfigured, or" >&2
+    echo "not being enforced on this host -- refusing to run an untrusted task on a" >&2
+    echo "network that isn't actually isolated. See docs/network-isolation.md." >&2
+    exit 1
+  fi
+fi
 
 # shellcheck disable=SC2016
 INNER_SCRIPT='
@@ -80,7 +144,7 @@ timeout "$RUNNER_TIMEOUT" docker run --rm \
   --security-opt no-new-privileges \
   --pids-limit 256 \
   --memory 4g \
-  --network host \
+  "${DOCKER_NET_ARGS[@]}" \
   -v "$WORKDIR:/workspace" \
   -w /workspace \
   -e REPO_URL="$REPO_URL" \

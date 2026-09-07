@@ -47,7 +47,7 @@ that don't hold up yet:
 
 | Precondition | Status | Reality |
 | --- | --- | --- |
-| Sandboxed execution -- container or VM, never as the `agent-hub` user on the host | **Mostly met, one real gap** | `scripts/run-task.sh` runs aider inside a rootless-Docker container (`nix/runner-image.nix`) built from a deliberately narrow image (no compilers, no package managers), with `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, `--memory 4g`. The host process (`agent-hub-run-task`) only launches and reaps the container; the model never runs code as the `agent-hub` host user. **But**: the container runs with `--network host`, not a network limited to `llama-server` + `github.com`, because NixOS's rootless Docker doesn't give `dockerd` its own network namespace on this box (confirmed via `/proc/*/ns/net`) -- bridge/`host.docker.internal` routing to the host simply doesn't work here. That means the sandbox currently has the whole host's network reachable, not a scoped subset. Documented as a known gap in `scripts/run-task.sh`'s own comments; not fixed. |
+| Sandboxed execution -- container or VM, never as the `agent-hub` user on the host | **Met** (network scoping addressed; one smaller gap remains) | `scripts/run-task.sh` runs aider inside a Docker container (`nix/runner-image.nix`) built from a deliberately narrow image (no compilers, no package managers), with `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, `--memory 4g`. The host process (`agent-hub-run-task`) only launches and reaps the container; the model never runs code as the `agent-hub` host user. `services.agent-hub.runner.network.mode` now defaults to `"bridge"`: a dedicated Docker network plus a `DOCKER-USER` iptables allowlist scoped to `llama-server` + `github.com`, replacing the old unconditional `--network host` (see [`docs/network-isolation.md`](docs/network-isolation.md) for the full analysis, including why that fix holds on ac-box's actual rootful Docker but not on this dev box's rootless one -- the dev box still uses `network.mode = "host"` deliberately, gated behind an explicit `singleTenantHost` acknowledgement precisely because it is not a shared host). **Smaller remaining gap**: the runner image sets no `USER`, so the sandboxed process still runs as root-in-container -- unrelated to network scoping, not yet fixed. |
 | GitHub credentials scoped to specific repos, stored via `sops-nix` | **Half met** | Repo scoping exists and is enforced twice: the PAT itself should be a fine-grained token scoped to one repo (a human/operator responsibility, not something Nix can verify), and `services.agent-hub.runner.allowedRepos` is a second, defense-in-depth allowlist the generated `agent-hub-run-task` script checks before it will touch a repo (module assertion also requires `allowedRepos != []`). **But**: `sops-nix` storage is not done. `githubTokenFile` is a plain option of type `nullOr path` -- at invocation time it just needs to point at a readable file; nothing decrypts it via `sops-nix`. 2a's proof-out used a fine-grained PAT for one disposable scratch repo, stored outside git but still a plain file. Wiring real `sops-nix` secret storage is explicitly still open work. |
 | Human approval before PR merge | **Met** | `scripts/run-task.sh` always runs `gh pr create --draft`; there is no `gh pr merge`, no auto-merge flag, and no code path in this repo that can merge a PR. Merging is a human action outside this tool, same as `nixos-rebuild switch` is a human action on ac-box. |
 
@@ -74,10 +74,17 @@ backend, not spare parallelism to coordinate).
 - NixOS's `virtualisation.docker.rootless` does not put `dockerd` in its own network
   namespace on this WSL2 box (confirmed via `/proc/*/ns/net`) -- `host.docker.internal`
   / bridge routing to the host doesn't work the way it does on Docker Desktop.
-  `docker run --network host` is what actually reaches `llama-server`; this is a real
+  `docker run --network host` is what actually reaches `llama-server`; this was a real
   gap against the original "network limited to llama-server + github.com" goal, since
   `--network host` gives the sandbox the whole host network, not just those two
-  destinations. Flagged for hardening, not fixed yet.
+  destinations. **Since addressed** (beads homelab-bqo.20, see
+  [`docs/network-isolation.md`](docs/network-isolation.md)): the module now defaults
+  `services.agent-hub.runner.network.mode` to a scoped Docker bridge + egress allowlist,
+  which works cleanly on ac-box's actual (rootful) Docker but, as this same investigation
+  found, does *not* work under this dev box's rootless Docker without weakening a
+  security default that's blocking it on purpose -- so this WSL2 box specifically still
+  runs `network.mode = "host"`, opted into explicitly rather than left as an unexamined
+  default.
 - **The model will edit its own tests to pass them if given the chance.** One proof run
   rewrote a test assertion to match its implementation instead of the reverse (the
   result was still correct here, but that's luck, not a property to rely on). Fix:
@@ -112,8 +119,10 @@ Two things worth knowing if you extend this module:
 
 Not done yet: `sops-nix` credential storage (githubTokenFile currently points at a
 plain file, which is fine for this box's scratch-repo PAT but not for a real
-deployment), any timer/webhook trigger (still manually invoked), and hardening the
-container's network beyond `--network host`.
+deployment), any timer/webhook trigger (still manually invoked), and giving the
+runner image a non-root `USER` (network scoping is done -- see
+[`docs/network-isolation.md`](docs/network-isolation.md) -- but the sandboxed process
+inside the container still runs as root-in-container, which is a separate gap).
 
 ## Using this repo
 
