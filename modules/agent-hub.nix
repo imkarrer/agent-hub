@@ -119,9 +119,19 @@ in
 
     runner = {
       enable = lib.mkEnableOption ''
-        Sandboxed repo+task->PR runner: aider, in a rootless Docker
-        container, pointed at services.agent-hub.llm. Phase 2a --
-        manually invoked only, no systemd service/timer yet.
+        Sandboxed repo+task->PR runner: aider, in a Docker container,
+        pointed at services.agent-hub.llm. Phase 2a -- manually invoked
+        only, no systemd service/timer yet.
+
+        On Docker flavour, because it decides whether isolation is even
+        achievable: ac-box runs ROOTFUL Docker (verified 7 Sep 2026 --
+        dockerd as root, /run/docker.sock root:docker, no rootless entry
+        under `docker info` security options), so a scoped bridge network
+        genuinely works there. The WSL2 dev box is the rootless one, and
+        its rootlesskit --disable-host-loopback hardening is what stops a
+        bridged container reaching llama-server -- which is why that box,
+        and only that box, opts into network.mode = "host" via
+        network.singleTenantHost.
       '';
 
       githubTokenFile = lib.mkOption {
