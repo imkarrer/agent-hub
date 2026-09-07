@@ -37,15 +37,26 @@ OpenHands or OpenCode -- see below) pointed at the Phase 1 server as its LLM bac
 This is a materially bigger security surface than Phase 1 or than anything in
 `home-arcade` -- it executes model-generated code and needs write access to git remotes.
 
-- Sandbox execution: a rootless Docker container (`nix/runner-image.nix`,
-  `scripts/run-task.sh`), never directly as the `agent-hub` user on the host.
-- Scope any GitHub credential to specific repos, PR-only where possible, stored via
-  `sops-nix` in the real deployment -- never in git, same rule `arcade-hub.nix` follows
-  for the SMB password. (2a's manual proof-out used a fine-grained PAT scoped to one
-  disposable scratch repo, stored outside git; wiring up `sops-nix` for real is a 2b/2c
-  task, not done yet.)
-- PRs always open as drafts and require human approval before merge -- there is no
-  merge step anywhere in the runner.
+**The code is ahead of where earlier drafts of this README said it was.** `modules/agent-hub.nix`
+already contains a real `services.agent-hub.runner` (rootless-Docker aider setup,
+`githubTokenFile`, `allowedRepos`), backed by `nix/runner-image.nix` and
+`scripts/run-task.sh`. What follows is what that code actually does today, checked
+precondition by precondition against what Phase 2 originally required before a
+repo-acting runner could be considered safe to wire in -- honestly, including the parts
+that don't hold up yet:
+
+| Precondition | Status | Reality |
+| --- | --- | --- |
+| Sandboxed execution -- container or VM, never as the `agent-hub` user on the host | **Mostly met, one real gap** | `scripts/run-task.sh` runs aider inside a rootless-Docker container (`nix/runner-image.nix`) built from a deliberately narrow image (no compilers, no package managers), with `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, `--memory 4g`. The host process (`agent-hub-run-task`) only launches and reaps the container; the model never runs code as the `agent-hub` host user. **But**: the container runs with `--network host`, not a network limited to `llama-server` + `github.com`, because NixOS's rootless Docker doesn't give `dockerd` its own network namespace on this box (confirmed via `/proc/*/ns/net`) -- bridge/`host.docker.internal` routing to the host simply doesn't work here. That means the sandbox currently has the whole host's network reachable, not a scoped subset. Documented as a known gap in `scripts/run-task.sh`'s own comments; not fixed. |
+| GitHub credentials scoped to specific repos, stored via `sops-nix` | **Half met** | Repo scoping exists and is enforced twice: the PAT itself should be a fine-grained token scoped to one repo (a human/operator responsibility, not something Nix can verify), and `services.agent-hub.runner.allowedRepos` is a second, defense-in-depth allowlist the generated `agent-hub-run-task` script checks before it will touch a repo (module assertion also requires `allowedRepos != []`). **But**: `sops-nix` storage is not done. `githubTokenFile` is a plain option of type `nullOr path` -- at invocation time it just needs to point at a readable file; nothing decrypts it via `sops-nix`. 2a's proof-out used a fine-grained PAT for one disposable scratch repo, stored outside git but still a plain file. Wiring real `sops-nix` secret storage is explicitly still open work. |
+| Human approval before PR merge | **Met** | `scripts/run-task.sh` always runs `gh pr create --draft`; there is no `gh pr merge`, no auto-merge flag, and no code path in this repo that can merge a PR. Merging is a human action outside this tool, same as `nixos-rebuild switch` is a human action on ac-box. |
+
+None of this has been deployed anywhere -- there is no host importing
+`nixosModules.agent-hub` with `runner.enable = true` yet, ac-box included. "Proven out on
+this dev box" means: manually invoked on the WSL2 prototype, against a small model,
+by a human watching it run. It has not run unattended, has not run on ac-box, and has
+no systemd service or timer triggering it -- `services.agent-hub.runner` only installs
+an `agent-hub-run-task` command for someone to run by hand.
 
 *Why aider, not OpenHands or OpenCode:* both are full multi-turn agentic loops, and at
 Phase 1's measured ~3.3 tok/s generation speed, every extra LLM round-trip is expensive.
@@ -141,3 +152,43 @@ To deploy the module on ac-box, import `nixosModules.agent-hub` from this flake 
 way `ac-host` imports a copy of `arcade-hub.nix` today, and set
 `services.agent-hub.llm.modelPath` to wherever the model lands under
 `services.agent-hub.dataDir`.
+
+**nixpkgs: the platform layer owns it, this flake must follow.** ac-box runs
+`nixos-26.05`, and `homelab` (the platform repo that owns the host, tenants included) is
+where `nixpkgs` gets pinned for the whole closure -- tenant flakes are not supposed to
+drag in their own copy. This flake's own `inputs.nixpkgs.url` points at
+`github:NixOS/nixpkgs/nixos-26.05` so standalone use of this repo (`nix build`,
+`nix flake check`, `nix develop`, all run in WSL2 outside `homelab`) matches the deploy
+target, but that pin is *not* what actually gets used once this is deployed. Whatever
+imports `nixosModules.agent-hub` as a tenant input (`homelab`, on ac-box) must set:
+
+```nix
+inputs.agent-hub.inputs.nixpkgs.follows = "nixpkgs";
+```
+
+so the host's single `nixpkgs` evaluation is authoritative and this repo's own pin never
+reaches the built closure. Every `llama-server` flag this module passes or documents in
+`extraArgs` (`--flash-attn on`, plus `--threads`, `--ctx-size`, `--host`, `--port`) has
+been checked against `nixos-26.05`'s `llama-cpp` package (version `9190`, matching the
+`homelab` README's own note) via `llama-server --help` on that exact build -- all five
+exist and behave as documented there. If the pinned `nixos-26.05` revision (or whatever
+it's superseded by) ever moves, re-run that check before trusting this module's flags
+against the new build; it does not re-verify itself.
+
+**Port note:** `services.agent-hub.llm.port` defaults to `8100`. That default is a
+shared-host allocation, not a free choice -- ac-box's Assetto Corsa tenant reserves the
+contiguous HTTP block `8081`-`8096` (8081 + 16 lobby slots), and `8100` sits outside
+every range reserved on that box today. It is not derived from any port registry here;
+if `homelab`'s tenant port registry ever claims `8100` for something else, this default
+has to move again, not be assumed still safe.
+
+**CPU note:** `services.agent-hub.llm.threads` defaults to `4`, not `0`. `0` (like
+llama-server's own default of `-1`) means "auto-detect and use every core llama.cpp can
+see" -- on ac-box that's all 56 threads, which would starve the live race servers
+sharing the box. `4` is a safe, non-grabby placeholder for dev use, not a capacity plan:
+on ac-box, `homelab`'s tier system is what actually owns CPU allocation (shares of
+`homelab.host.capacity.cpuThreads`, applied as `CPUWeight`/`AllowedCPUs` on this
+tenant's slice, per that repo's "tiers are shares, not absolute indices" rule). Whoever
+deploys this module must set `threads` to match the CPU allowance that slice actually
+grants agent-hub, not the host's total core count and not this default without
+checking.

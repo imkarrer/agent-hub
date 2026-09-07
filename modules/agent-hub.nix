@@ -1,9 +1,13 @@
-# Local coding-agent host module. CPU-only LLM serving via llama.cpp.
-# Phase 1 (this module): the model server only. No agent harness, no
-# repo/GitHub access yet -- that lands as services.agent-hub.runner once
-# the serving layer is validated. Never bind this past the LAN interface:
-# the runner phase will be able to execute code and push commits, which
-# makes the whole stack a bigger target than arcade-hub.
+# Local coding-agent host module. CPU-only LLM serving via llama.cpp, plus
+# (as of 2b) a sandboxed repo+task->draft-PR runner: services.agent-hub.llm
+# and services.agent-hub.runner both live here now -- this comment used to
+# say the runner "lands... once the serving layer is validated," which is
+# stale now that it's in this same file. See README.md for the honest,
+# precondition-by-precondition account of what's actually wired up (2a/2b,
+# proven out on the WSL2 dev box) versus what a real ac-box deployment (2c)
+# still needs. Never bind services.agent-hub.llm past the LAN interface:
+# the runner can execute model-generated code and push commits, which makes
+# the whole stack a bigger target than arcade-hub.
 {
   config,
   lib,
