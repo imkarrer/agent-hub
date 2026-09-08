@@ -28,8 +28,19 @@ pkgs.dockerTools.buildImage {
     Env = [
       "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
       "GIT_SSL_CAINFO=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+      # The image's own filesystem is the read-only nix store; /workspace
+      # (the bind-mounted host tmpdir) is the only writable path, so HOME
+      # has to point there too -- gh's config and any tool that insists on
+      # a real $HOME would otherwise fail to write it.
+      "HOME=/workspace"
     ];
     WorkingDir = "/workspace";
     Entrypoint = [ "bash" ];
+    # Numeric, not a named user -- avoids needing to fabricate /etc/passwd
+    # entries in the image. run-task.sh passes --user "$(id -u):$(id -g)"
+    # matching whatever host user owns the bind-mounted workdir, so this is
+    # just the documented fallback when the image is run directly without
+    # that override (e.g. `docker run agent-hub-runner:latest` by hand).
+    User = "1000:1000";
   };
 }

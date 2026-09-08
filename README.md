@@ -47,7 +47,7 @@ that don't hold up yet:
 
 | Precondition | Status | Reality |
 | --- | --- | --- |
-| Sandboxed execution -- container or VM, never as the `agent-hub` user on the host | **Met** (network scoping addressed; one smaller gap remains) | `scripts/run-task.sh` runs aider inside a Docker container (`nix/runner-image.nix`) built from a deliberately narrow image (no compilers, no package managers), with `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, `--memory 4g`. The host process (`agent-hub-run-task`) only launches and reaps the container; the model never runs code as the `agent-hub` host user. `services.agent-hub.runner.network.mode` now defaults to `"bridge"`: a dedicated Docker network plus a `DOCKER-USER` iptables allowlist scoped to `llama-server` + `github.com`, replacing the old unconditional `--network host` (see [`docs/network-isolation.md`](docs/network-isolation.md) for the full analysis, including why that fix holds on ac-box's actual rootful Docker but not on this dev box's rootless one -- the dev box still uses `network.mode = "host"` deliberately, gated behind an explicit `singleTenantHost` acknowledgement precisely because it is not a shared host). **Smaller remaining gap**: the runner image sets no `USER`, so the sandboxed process still runs as root-in-container -- unrelated to network scoping, not yet fixed. |
+| Sandboxed execution -- container or VM, never as the `agent-hub` user on the host | **Met** | `scripts/run-task.sh` runs aider inside a Docker container (`nix/runner-image.nix`) built from a deliberately narrow image (no compilers, no package managers), with `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, `--memory 4g`, and a non-root `--user` (see below for the rootless-Docker exception). The host process (`agent-hub-run-task`) only launches and reaps the container; the model never runs code as the `agent-hub` host user. `services.agent-hub.runner.network.mode` now defaults to `"bridge"`: a dedicated Docker network plus a `DOCKER-USER` iptables allowlist scoped to `llama-server` + `github.com`, replacing the old unconditional `--network host` (see [`docs/network-isolation.md`](docs/network-isolation.md) for the full analysis, including why that fix holds on ac-box's actual rootful Docker but not on this dev box's rootless one -- the dev box still uses `network.mode = "host"` deliberately, gated behind an explicit `singleTenantHost` acknowledgement precisely because it is not a shared host). |
 | GitHub credentials scoped to specific repos, stored via `sops-nix` | **Half met** | Repo scoping exists and is enforced twice: the PAT itself should be a fine-grained token scoped to one repo (a human/operator responsibility, not something Nix can verify), and `services.agent-hub.runner.allowedRepos` is a second, defense-in-depth allowlist the generated `agent-hub-run-task` script checks before it will touch a repo (module assertion also requires `allowedRepos != []`). **But**: `sops-nix` storage is not done. `githubTokenFile` is a plain option of type `nullOr path` -- at invocation time it just needs to point at a readable file; nothing decrypts it via `sops-nix`. 2a's proof-out used a fine-grained PAT for one disposable scratch repo, stored outside git but still a plain file. Wiring real `sops-nix` secret storage is explicitly still open work. |
 | Human approval before PR merge | **Met** | `scripts/run-task.sh` always runs `gh pr create --draft`; there is no `gh pr merge`, no auto-merge flag, and no code path in this repo that can merge a PR. Merging is a human action outside this tool, same as `nixos-rebuild switch` is a human action on ac-box. |
 
@@ -117,12 +117,22 @@ Two things worth knowing if you extend this module:
   even though the constant-ness is intentional (Nix baked it in) -- rewritten as a
   plain bash array + loop instead, which both reads better and doesn't trip it.
 
-Not done yet: `sops-nix` credential storage (githubTokenFile currently points at a
+**Non-root sandbox process, with one detected, documented exception.**
+`nix/runner-image.nix` now sets `User = "1000:1000"`, and `run-task.sh` passes
+`--user "$(id -u):$(id -g)"` matching whoever invokes it -- except when Docker itself is
+rootless (`docker info`'s `SecurityOptions` reports it, checked at runtime), where it
+explicitly forces `--user 0:0` instead. Root-in-container sounds like the wrong answer,
+but it's the *correct* one there: rootless Docker's own convention maps container UID 0
+to the real host user, while any non-zero container UID gets shoved into a subordinate
+range (`/etc/subuid`) that never matches the bind-mounted workdir's owner. Verified
+empirically on this dev box -- `--user 1000:1000` against a world-writable workdir still
+gets `Permission denied`, `--userns=host --user 0:0` succeeds. ac-box runs plain rootful
+Docker, where no such remap exists and a genuinely unprivileged UID just works. Detected
+per-host rather than assumed, same pattern as the network isolation work.
+
+Not done yet: `sops-nix` credential storage (`githubTokenFile` currently points at a
 plain file, which is fine for this box's scratch-repo PAT but not for a real
-deployment), any timer/webhook trigger (still manually invoked), and giving the
-runner image a non-root `USER` (network scoping is done -- see
-[`docs/network-isolation.md`](docs/network-isolation.md) -- but the sandboxed process
-inside the container still runs as root-in-container, which is a separate gap).
+deployment) and any timer/webhook trigger (still manually invoked).
 
 ## Using this repo
 

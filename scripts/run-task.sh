@@ -38,6 +38,28 @@ TEST_CMD="${4:-}"
 : "${RUNNER_NETWORK_NAME:=agent-hub-runner}"
 : "${RUNNER_NETWORK_SUBNET:=172.30.99.0/24}"
 
+# Non-root sandbox process -- with one detected, documented exception.
+# Rootless Docker (this dev box) remaps any non-zero container UID into a
+# subordinate range (/etc/subuid), so it never matches the real host user
+# that owns the bind-mounted workdir -- only container UID 0 does, via
+# rootlesskit's own base mapping. That makes "non-root" and "can write the
+# workspace" mutually exclusive there specifically: verified empirically
+# (touch/git both fail under --user with a world-writable workdir; --userns
+# =host --user 0:0 succeeds, i.e. only root-in-container lines up with the
+# real host uid). ac-box runs plain rootful Docker, where no such remap
+# exists and --user genuinely drops privileges -- detect which one this
+# host is rather than assume.
+if docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q rootless; then
+  # The image's own default (User=1000:1000, nix/runner-image.nix) hits the
+  # exact same remap problem -- omitting --user here would inherit that
+  # default, not fall back to root. Root-in-container is the one UID that
+  # lines up with the real host user under rootless Docker's own
+  # convention, so it has to be requested explicitly.
+  DOCKER_USER_ARGS=(--user 0:0)
+else
+  DOCKER_USER_ARGS=(--user "$(id -u):$(id -g)")
+fi
+
 WORKDIR="$(mktemp -d)"
 CONTAINER_NAME="agent-hub-runner-$$"
 BRANCH="agent-hub/$(date +%s)"
@@ -77,7 +99,7 @@ esac
 #      time and proves nothing.
 if [ "$RUNNER_NETWORK_MODE" = "bridge" ]; then
   echo "preflight: checking llama-server reachability on '$RUNNER_NETWORK_NAME'..." >&2
-  if ! timeout 10 docker run --rm "${DOCKER_NET_ARGS[@]}" "$RUNNER_IMAGE" \
+  if ! timeout 10 docker run --rm "${DOCKER_USER_ARGS[@]}" "${DOCKER_NET_ARGS[@]}" "$RUNNER_IMAGE" \
       python3 -c "import urllib.request,sys; urllib.request.urlopen(sys.argv[1], timeout=5)" \
       "$LLAMA_BASE_URL/models" >/dev/null 2>&1; then
     echo "preflight FAILED: cannot reach $LLAMA_BASE_URL from '$RUNNER_NETWORK_NAME'." >&2
@@ -89,7 +111,7 @@ if [ "$RUNNER_NETWORK_MODE" = "bridge" ]; then
   fi
 
   echo "preflight: checking default-deny egress actually blocks an unlisted host..." >&2
-  if timeout 10 docker run --rm "${DOCKER_NET_ARGS[@]}" "$RUNNER_IMAGE" \
+  if timeout 10 docker run --rm "${DOCKER_USER_ARGS[@]}" "${DOCKER_NET_ARGS[@]}" "$RUNNER_IMAGE" \
       python3 -c "import urllib.request; urllib.request.urlopen('http://1.1.1.1', timeout=5)" >/dev/null 2>&1; then
     echo "preflight FAILED: '$RUNNER_NETWORK_NAME' can reach 1.1.1.1, which is outside" >&2
     echo "every allowed destination. The egress allowlist is missing, misconfigured, or" >&2
@@ -140,6 +162,7 @@ gh pr create --draft --base "$BASE_BRANCH" --head "$BRANCH" \
 set +e
 timeout "$RUNNER_TIMEOUT" docker run --rm \
   --name "$CONTAINER_NAME" \
+  "${DOCKER_USER_ARGS[@]}" \
   --cap-drop=ALL \
   --security-opt no-new-privileges \
   --pids-limit 256 \
