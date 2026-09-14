@@ -78,6 +78,13 @@ let
       # answer /v1/models once the pipeline is loaded.
       checkEndpoint = if m.kind == "image" then "/v1/models" else "/health";
       inherit (m) aliases ttl;
+      # The UI lists every model on every playground tab; it cannot know a
+      # model's kind. The description is where a person learns which tab.
+      name = name;
+      description =
+        if m.description != "" then m.description
+        else if m.kind == "image" then "image generation -- use the Images tab (or /upstream/${name}/); it has no chat endpoint"
+        else "text -- use the Chat tab";
     };
 
   swapConfig = pkgs.writeText "agent-hub-llama-swap.json" (
@@ -261,6 +268,12 @@ in
                   type = lib.types.listOf lib.types.str;
                   default = [ ];
                   description = "Extra CLI args for this backend, after the ones the module emits. Same rules as the unit-wide `extraArgs`; for kind = \"image\" they are sd-server's.";
+                };
+
+                description = lib.mkOption {
+                  type = lib.types.str;
+                  default = "";
+                  description = "Shown next to the model in llama-swap's UI and in /v1/models. Empty means a per-kind default that says which playground tab the model belongs on.";
                 };
 
                 aliases = lib.mkOption {
