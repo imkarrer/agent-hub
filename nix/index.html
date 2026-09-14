@@ -4,7 +4,7 @@
   services.agent-hub.llm.landingPage is on; everything else on the port is
   proxied to llama-swap. llama-swap's own /ui lists every model on every
   tab because it does not know what a model is; this page reads the kind
-  the module puts in each model's metadata (/v1/models) and shows chat
+  the module writes to models.json beside this file and shows chat
   models and image models apart, each linking to that backend's own UI
   (/upstream/<id>/: ik_llama.cpp's chat page, or sd-ui.html for images).
   Opening one of those links is what loads the model.
@@ -46,8 +46,11 @@
   (async () => {
     let models = [], running = new Set();
     try {
-      const m = await fetch('v1/models').then(r => r.json());
-      models = m.data || [];
+      // { "<id>": { kind: "llama"|"image", description } }, written by the
+      // module from the same options as the llama-swap config. (llama-swap
+      // documents per-model metadata in /v1/models; v224 returned null.)
+      const kinds = await fetch('models.json').then(r => r.json());
+      models = Object.entries(kinds).map(([id, v]) => ({ id, ...v })).sort((a, b) => a.id.localeCompare(b.id));
       const r = await fetch('running').then(r => r.json()).catch(() => ({ running: [] }));
       running = new Set((r.running || []).filter(x => x.state === 'ready').map(x => x.model));
     } catch (e) {
@@ -57,7 +60,7 @@
     }
     const lists = { chat: [], image: [] };
     for (const m of models) {
-      const kind = (m.metadata && m.metadata.kind) === 'image' ? 'image' : 'chat';
+      const kind = m.kind === 'image' ? 'image' : 'chat';
       lists[kind].push(m);
     }
     for (const [kind, arr] of Object.entries(lists)) {

@@ -81,13 +81,28 @@ let
       # The UI lists every model on every playground tab; it cannot know a
       # model's kind. The description is where a person learns which tab.
       name = name;
-      # Passed through /v1/models untouched; nix/index.html reads `kind`.
+      # Documented as passed through /v1/models; llama-swap 224 answered
+      # `metadata: null` for it on ac-box, so nix/index.html does not rely
+      # on it -- it reads the models.json nginx serves beside it instead.
       metadata = { inherit (m) kind; };
       description =
         if m.description != "" then m.description
         else if m.kind == "image" then "image generation -- use the Images tab (or /upstream/${name}/); it has no chat endpoint"
         else "text -- use the Chat tab";
     };
+
+  landingDir = pkgs.runCommand "agent-hub-landing" { } ''
+    mkdir -p $out
+    cp ${../nix/index.html} $out/index.html
+    cp ${pkgs.writeText "models.json" (
+      builtins.toJSON (
+        lib.mapAttrs (name: m: {
+          inherit (m) kind;
+          description = (swapModel name m).description;
+        }) cfg.llm.models
+      )
+    )} $out/models.json
+  '';
 
   swapConfig = pkgs.writeText "agent-hub-llama-swap.json" (
     builtins.toJSON ({
@@ -653,9 +668,15 @@ in
       recommendedProxySettings = true;
       virtualHosts."agent-hub" = {
         listen = [ { addr = cfg.lanAddress; port = cfg.llm.port; } ];
+        # The page plus a models.json saying which model is which kind,
+        # from the same options the llama-swap config comes from.
         locations."= /" = {
-          root = pkgs.runCommand "agent-hub-landing" { } "mkdir -p $out; cp ${../nix/index.html} $out/index.html";
+          root = landingDir;
           tryFiles = "/index.html =404";
+        };
+        locations."= /models.json" = {
+          root = landingDir;
+          extraConfig = "default_type application/json;";
         };
         locations."/" = {
           proxyPass = "http://127.0.0.1:${toString cfg.llm.port}";
