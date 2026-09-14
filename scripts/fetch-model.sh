@@ -13,9 +13,9 @@
 # llama-swap in front of several backends.
 #
 # Idempotent and resumable: curl -C - continues a partial file, and a complete
-# file is a no-op. ~180 GB in total; from Hugging Face on a 1 Gbit link that
+# file is a no-op. ~210 GB in total; from Hugging Face on a 1 Gbit link that
 # is about two hours the first time. Pass model names to fetch a subset:
-#   fetch-model.sh coder instruct z-image
+#   fetch-model.sh coder instruct z-image flux2-klein
 set -euo pipefail
 
 DEST="${DEST:-/srv/agent-hub/models}"
@@ -55,6 +55,20 @@ z-image() {
   get Comfy-Org/z_image_turbo split_files/vae/ae.safetensors z_image-vae-ae.safetensors
 }
 
-for m in "${@:-coder instruct z-image}"; do "$m"; done
+# FLUX.2 klein, 4B (Apache 2.0) and 9B (non-commercial licence), 4-step
+# distilled: the 4B is ~3x faster than Z-Image-Turbo at similar quality and
+# can edit images; the 9B is a quality step up at Z-Image speed. Each needs
+# its own Qwen3 text encoder (the ORIGINAL Qwen3-4B/8B, not the 2507
+# Instruct that Z-Image uses -- klein was trained against these) and the
+# FLUX.2 VAE, which is gated on BFL's repo and not on Comfy-Org's. ~28 GB.
+flux2-klein() {
+  get Comfy-Org/flux2-klein-4B split_files/vae/flux2-vae.safetensors flux2-vae.safetensors
+  get leejet/FLUX.2-klein-4B-GGUF flux-2-klein-4b-Q8_0.gguf
+  get unsloth/Qwen3-4B-GGUF Qwen3-4B-Q8_0.gguf
+  get leejet/FLUX.2-klein-9B-GGUF flux-2-klein-9b-Q8_0.gguf
+  get unsloth/Qwen3-8B-GGUF Qwen3-8B-Q8_0.gguf
+}
+
+for m in "${@:-coder instruct z-image flux2-klein}"; do "$m"; done
 echo "=== $(date -Is) done"
 ls -la "$DEST"
