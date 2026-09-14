@@ -175,11 +175,18 @@ before trusting any number in this README or in homelab's routing skill against 
 
 **Several models, one port.** `services.agent-hub.llm.models` puts llama-swap on the port with
 one backend per entry -- ac-box serves `coder` (Qwen3-Coder-Next), `instruct` (Qwen3-Next
-Instruct, with `claude-*` aliases so inquire-platform's Anthropic SDK lands on it unchanged)
-and `z-image-turbo` (stable-diffusion.cpp) -- loaded one at a time, swapped when a request
-names a different one, 20-60 s per swap. `/ui` on that port is the picker; `/upstream/<name>/`
-is each backend's own UI. `scripts/fetch-model.sh` on the box fetches every file those entries
-name. The single-model unit (`modelPath`) is unchanged and is what the WSL2 prototype runs.
+Instruct, with `claude-*` aliases so inquire-platform's Anthropic SDK lands on it unchanged),
+three image models (stable-diffusion.cpp: `z-image-turbo`, `flux2-klein-4b`, `flux2-klein-9b`)
+and `embed` (Qwen3-Embedding-0.6B, `kind = "embedding"`, `/v1/embeddings` only). A model runs
+alone unless `concurrent` lists it in a set that may stay resident together; a swap is 20-60 s.
+`/` on that port is the front page (`landingPage`), `/upstream/<name>/` each backend's own UI.
+`scripts/fetch-model.sh` on the box fetches every file those entries name. The single-model
+unit (`modelPath`) is unchanged and is what the WSL2 prototype runs.
+
+**A vector store beside it.** `services.agent-hub.vectors` runs nixpkgs' Qdrant on the LAN
+address (`:6333`, HTTP only) as the store the embedding model writes into; nothing indexes
+into it yet. `scripts/vectors-smoke.sh` embeds three sentences, upserts them, searches with a
+fourth and checks the nearest hit, then drops the collection -- the proof the pair works.
 
 
 To deploy the module on ac-box, import `nixosModules.agent-hub` from this flake the same

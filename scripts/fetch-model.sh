@@ -15,7 +15,7 @@
 # Idempotent and resumable: curl -C - continues a partial file, and a complete
 # file is a no-op. ~210 GB in total; from Hugging Face on a 1 Gbit link that
 # is about two hours the first time. Pass model names to fetch a subset:
-#   fetch-model.sh coder instruct z-image flux2-klein
+#   fetch-model.sh coder instruct z-image flux2-klein embed
 set -euo pipefail
 
 DEST="${DEST:-/srv/agent-hub/models}"
@@ -69,6 +69,14 @@ flux2-klein() {
   get unsloth/Qwen3-8B-GGUF Qwen3-8B-Q8_0.gguf
 }
 
-for m in "${@:-coder instruct z-image flux2-klein}"; do "$m"; done
+# Embeddings: Qwen3-Embedding-0.6B, the small end of the same family the
+# chat models come from, 1024-dim vectors, 32k context, pooling stored in
+# the GGUF (last token). Served by llama-server in embedding mode and
+# written into Qdrant (services.agent-hub.vectors). ~0.6 GB.
+embed() {
+  get Qwen/Qwen3-Embedding-0.6B-GGUF Qwen3-Embedding-0.6B-Q8_0.gguf
+}
+
+for m in "${@:-coder instruct z-image flux2-klein embed}"; do "$m"; done
 echo "=== $(date -Is) done"
 ls -la "$DEST"

@@ -47,6 +47,17 @@ let
           "--threads"
           (toString m.threads)
         ]
+        # An embedding model is the same binary in its embedding-only mode:
+        # /v1/embeddings answers, /v1/chat/completions does not. Pooling is
+        # read from the GGUF unless `pooling` overrides it. Pooled embeddings
+        # need the whole input inside one physical batch, so both batch
+        # sizes are raised to the context: a chunk that fits the context is
+        # then a chunk that embeds, instead of "input is too large to
+        # process" at the default 512.
+        ++ lib.optionals (m.kind == "embedding") (
+          [ "--embedding" "--batch-size" (toString m.contextSize) "--ubatch-size" (toString m.contextSize) ]
+          ++ lib.optionals (m.pooling != null) [ "--pooling" m.pooling ]
+        )
         ++ cfg.llm.extraArgs
         ++ m.extraArgs
       ) + " --port \${PORT}";
@@ -88,6 +99,7 @@ let
       description =
         if m.description != "" then m.description
         else if m.kind == "image" then "image generation -- use the Images tab (or /upstream/${name}/); it has no chat endpoint"
+        else if m.kind == "embedding" then "embeddings -- POST /v1/embeddings; it has no chat endpoint and no UI"
         else "text -- use the Chat tab";
     };
 
@@ -247,13 +259,27 @@ in
             {
               options = {
                 kind = lib.mkOption {
-                  type = lib.types.enum [ "llama" "image" ];
+                  type = lib.types.enum [ "llama" "image" "embedding" ];
                   default = "llama";
                   description = ''
                     "llama": a GGUF served by llama-server (`engine` picks
                     which build). "image": a diffusion model served by
                     stable-diffusion.cpp's sd-server, which speaks the same
-                    OpenAI images API llama-swap routes.
+                    OpenAI images API llama-swap routes. "embedding": a GGUF
+                    served by llama-server in embedding-only mode
+                    (--embedding), answering /v1/embeddings and nothing
+                    else; `pooling` picks the pooling if the GGUF's own
+                    metadata is not what is wanted.
+                  '';
+                };
+
+                pooling = lib.mkOption {
+                  type = lib.types.nullOr (lib.types.enum [ "none" "mean" "cls" "last" ]);
+                  default = null;
+                  description = ''
+                    kind = "embedding" only: --pooling. null leaves it to the
+                    GGUF, which carries the model's own choice (Qwen3-Embedding
+                    stores "last"); set it only for a GGUF that does not.
                   '';
                 };
 
@@ -434,6 +460,25 @@ in
       };
     };
 
+    vectors = {
+      enable = lib.mkEnableOption ''
+        Qdrant beside the model server: the vector store an embedding model
+        (llm.models.<name>.kind = "embedding") writes into and agents search.
+        nixpkgs' services.qdrant, bound to lanAddress on `port` like the
+        model server and nothing wider; gRPC stays off, so one port. Adds
+        qdrant.service to the host, with its state in /var/lib/qdrant (the
+        module's StateDirectory; a tenant contract that lists units and
+        state paths by name must be told both). Memory is where it spends:
+        the HNSW index lives in RAM, the vectors and payloads on disk.
+      '';
+
+      port = lib.mkOption {
+        type = lib.types.port;
+        default = 6333;
+        description = "Qdrant's HTTP port on lanAddress. Its upstream default; a shared host's port registry must claim it.";
+      };
+    };
+
     runner = {
       enable = lib.mkEnableOption ''
         Sandboxed repo+task->PR runner: aider, in a Docker container,
@@ -609,7 +654,9 @@ in
     # Interface-scoped only, same reasoning as arcade-hub: never global
     # allowedTCPPorts, and never forward these past the LAN.
     networking.firewall.interfaces.${cfg.gameInterface} = {
-      allowedTCPPorts = lib.optional cfg.llm.enable cfg.llm.port;
+      allowedTCPPorts =
+        lib.optional cfg.llm.enable cfg.llm.port
+        ++ lib.optional cfg.vectors.enable cfg.vectors.port;
     };
 
     systemd.services.agent-hub-llm = lib.mkIf cfg.llm.enable {
@@ -694,6 +741,21 @@ in
           '';
         };
       };
+    };
+
+    services.qdrant = lib.mkIf cfg.vectors.enable {
+      enable = true;
+      settings.service = {
+        host = cfg.lanAddress;
+        http_port = cfg.vectors.port;
+        # null is how qdrant's own config.yaml spells "no gRPC listener";
+        # the NixOS module defaults it to 6334, which would be a second
+        # LAN port nothing here speaks.
+        grpc_port = null;
+      };
+      # The module's other defaults stand: state under /var/lib/qdrant,
+      # HNSW in RAM, payloads on disk, telemetry off, and qdrant-web-ui at
+      # /dashboard on the same port for looking at collections by hand.
     };
 
     environment.systemPackages = lib.optional cfg.runner.enable (
@@ -797,8 +859,16 @@ in
         message = "services.agent-hub.llm.concurrent: every name must be a key of llm.models (not an alias).";
       }
       {
-        assertion = lib.all (m: m.kind == "llama" || m.vae != null) (lib.attrValues cfg.llm.models);
+        assertion = lib.all (m: m.kind != "image" || m.vae != null) (lib.attrValues cfg.llm.models);
         message = "services.agent-hub.llm.models: an image model needs a vae.";
+      }
+      {
+        assertion = lib.all (m: m.kind == "image" || (m.vae == null && m.textEncoder == null)) (lib.attrValues cfg.llm.models);
+        message = "services.agent-hub.llm.models: vae and textEncoder are image-model fields; a llama or embedding model has neither.";
+      }
+      {
+        assertion = lib.all (m: m.kind == "embedding" || m.pooling == null) (lib.attrValues cfg.llm.models);
+        message = "services.agent-hub.llm.models: pooling is an embedding-model field.";
       }
       {
         assertion =
@@ -813,6 +883,10 @@ in
       {
         assertion = cfg.lanAddress != "0.0.0.0";
         message = "services.agent-hub.lanAddress must be the LAN IP, not 0.0.0.0.";
+      }
+      {
+        assertion = cfg.vectors.enable -> cfg.llm.enable;
+        message = "services.agent-hub.vectors is the store for llm's embedding model; it makes no sense without llm.enable.";
       }
       {
         assertion = !cfg.runner.enable || cfg.runner.githubTokenFile != null;
