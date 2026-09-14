@@ -4,3 +4,4 @@ result-*
 models/
 *.gguf
 .claude/settings.local.json
+scripts/bench/results/

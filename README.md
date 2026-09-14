@@ -167,6 +167,13 @@ Models are never committed -- `models/` and `*.gguf` are gitignored, same rule
 `home-arcade` applies to ROMs. See [docs/models.md](docs/models.md) (once written) for
 which GGUF to pull for the WSL2 prototype vs. the ac-box deploy.
 
+**Throughput on ac-box is a measured thing, not a guess:** [docs/prefill-tuning.md](docs/prefill-tuning.md)
+is the 14 Sep 2026 sweep that took the deployed server from 17 to 140 tok/s prefill (4.5 to
+13.3 generation) with no model change -- NUMA placement, the cgroup cpuset, and ik_llama.cpp
+(`services.agent-hub.llm.engine = "ik-llama-cpp"`). `scripts/bench/` is the harness; re-run it
+before trusting any number in this README or in homelab's routing skill against a new build.
+
+
 To deploy the module on ac-box, import `nixosModules.agent-hub` from this flake the same
 way `ac-host` imports a copy of `arcade-hub.nix` today, and set
 `services.agent-hub.llm.modelPath` to wherever the model lands under

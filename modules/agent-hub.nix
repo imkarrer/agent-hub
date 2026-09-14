@@ -53,6 +53,35 @@ in
     llm = {
       enable = lib.mkEnableOption "llama.cpp OpenAI-compatible server (llama-server)";
 
+      engine = lib.mkOption {
+        type = lib.types.enum [ "llama-cpp" "ik-llama-cpp" ];
+        default = "llama-cpp";
+        description = ''
+          Which llama-server binary runs the model. "llama-cpp" is nixpkgs'
+          package (b9190 on nixos-26.05); "ik-llama-cpp" is ikawrakow's fork
+          built from ../nix/ik-llama-cpp.nix. On a CPU-only host the fork's
+          matrix kernels are the difference between a tool you wait on and
+          one you use: on ac-box, same model, same cores, same memory
+          placement, prefill 121 vs 30 tok/s and generation 12.5 vs 5.8
+          (14 Sep 2026, docs/prefill-tuning.md). Every flag this module emits
+          (--model, --host, --port, --ctx-size, --threads) and every flag
+          ac-box passes in extraArgs exists in both binaries with the same
+          meaning; fork-only flags (-rtr, -thp, -fmoe) belong in extraArgs
+          and must only be set together with this engine.
+        '';
+      };
+
+      package = lib.mkOption {
+        type = lib.types.package;
+        default =
+          if cfg.llm.engine == "ik-llama-cpp"
+          then import ../nix/ik-llama-cpp.nix { inherit pkgs; }
+          else pkgs.llama-cpp;
+        defaultText = lib.literalExpression ''pkgs.llama-cpp, or the ik_llama.cpp build when engine = "ik-llama-cpp"'';
+        description = "The llama.cpp package providing bin/llama-server. Normally chosen by `engine`; override only to test a different build.";
+      };
+
+
       modelPath = lib.mkOption {
         type = lib.types.path;
         description = "Absolute path to a GGUF model file under dataDir. No default -- must be set per host.";
@@ -113,6 +142,11 @@ in
           this module) all exist in that build too. Re-check this comment
           against `llama-server --help` if the pinned nixpkgs revision ever
           moves.
+
+          With engine = "ik-llama-cpp" the same flags exist with the same
+          meaning (checked against that build's `llama-server --help`, 14 Sep
+          2026); `-rtr`, `-thp`, `-fmoe` and friends are ik-only and belong
+          here too, but only alongside that engine.
         '';
       };
     };
@@ -305,7 +339,7 @@ in
         Group = "agent-hub";
         ExecStart = lib.escapeShellArgs (
           [
-            "${pkgs.llama-cpp}/bin/llama-server"
+            "${cfg.llm.package}/bin/llama-server"
             "--model"
             cfg.llm.modelPath
             "--host"
