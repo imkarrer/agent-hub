@@ -59,6 +59,12 @@ let
           "127.0.0.1"
           "-t"
           (toString m.threads)
+          # nixpkgs' sd-server ships no frontend; this one-file page is the
+          # difference between an image model people can use and one only
+          # curl can. Served at the backend's root, so /upstream/<name>/ on
+          # llama-swap's port.
+          "--serve-html-path"
+          "${../nix/sd-ui.html}"
         ]
         ++ lib.optionals (m.vae != null) [ "--vae" (toString m.vae) ]
         ++ lib.optionals (m.textEncoder != null) [ "--llm" (toString m.textEncoder) ]
