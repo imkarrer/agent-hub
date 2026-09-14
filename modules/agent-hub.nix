@@ -88,7 +88,7 @@ let
     };
 
   swapConfig = pkgs.writeText "agent-hub-llama-swap.json" (
-    builtins.toJSON {
+    builtins.toJSON ({
       # Loopback ports for the backends. Not a LAN allocation, so not in
       # the port registry; chosen away from anything else on 127.0.0.1.
       startPort = 18100;
@@ -100,6 +100,24 @@ let
       healthCheckTimeout = 600;
       models = lib.mapAttrs swapModel cfg.llm.models;
     }
+    // lib.optionalAttrs (cfg.llm.concurrent != [ ]) {
+      # llama-swap's "matrix": named sets of models that may run together,
+      # written in its own DSL over short variable names. One variable per
+      # model (v0, v1, ...; the DSL wants 1-8 alphanumerics), one set per
+      # entry of `concurrent`, members joined with &. A model in no set can
+      # only run alone, which is the default behaviour kept for the rest.
+      matrix =
+        let
+          names = lib.attrNames cfg.llm.models;
+          var = n: "v${toString (lib.lists.findFirstIndex (x: x == n) 0 names)}";
+        in
+        {
+          vars = lib.listToAttrs (map (n: lib.nameValuePair (var n) n) names);
+          sets = lib.listToAttrs (
+            lib.imap0 (i: set: lib.nameValuePair "set${toString i}" (lib.concatMapStringsSep " & " var set)) cfg.llm.concurrent
+          );
+        };
+    })
   );
 in
 {
@@ -305,6 +323,22 @@ in
         default = sdPackage;
         defaultText = lib.literalExpression "import ../nix/stable-diffusion-cpp.nix { inherit pkgs; }";
         description = "Read-only: the stable-diffusion.cpp build image models run on (nixpkgs' package with AVX2/FMA/F16C turned on; see nix/stable-diffusion-cpp.nix).";
+      };
+
+      concurrent = lib.mkOption {
+        type = lib.types.listOf (lib.types.listOf lib.types.str);
+        default = [ ];
+        example = [ [ "coder" "instruct" ] ];
+        description = ''
+          Sets of models llama-swap may keep loaded at the same time. By
+          default every model runs alone: asking for one stops whatever is
+          running. Each inner list here is a set whose members may all be
+          resident together, so switching between them costs no load -- at
+          the price that when two of them are busy at once they share the
+          unit's cores, and that the tier's memory ceiling must hold all
+          of them. A model in no set still runs alone and evicts everything
+          else when asked for. Names are keys of `models`, not aliases.
+        '';
       };
 
       swapConfigFile = lib.mkOption {
@@ -688,6 +722,10 @@ in
       {
         assertion = multi || cfg.llm.modelPath != null;
         message = "services.agent-hub.llm: modelPath must be set when models is empty.";
+      }
+      {
+        assertion = lib.all (n: lib.hasAttr n cfg.llm.models) (lib.concatLists cfg.llm.concurrent);
+        message = "services.agent-hub.llm.concurrent: every name must be a key of llm.models (not an alias).";
       }
       {
         assertion = lib.all (m: m.kind == "llama" || m.vae != null) (lib.attrValues cfg.llm.models);
