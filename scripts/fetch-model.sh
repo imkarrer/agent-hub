@@ -1,37 +1,60 @@
 #!/usr/bin/env bash
-# Fetch the model ac-box actually serves, into the directory homelab's
-# configuration.nix points llama-server at.
+# Fetch every model ac-box serves, into the directory homelab's
+# configuration.nix points the model server at. One entry per served model,
+# named once here and referenced from homelab's `services.agent-hub.llm.models`
+# by the same file names -- if a name changes in one place it changes in the
+# other, in the same commit.
 #
-# This used to fetch the Phase 1 smoke-test model (Qwen2.5-Coder-14B Q4_K_M)
-# into a relative models/ directory, and it stayed that way after the real
-# model was chosen and downloaded -- by a different script, written by hand
-# in /root on the box on 7 Sep 2026 and never committed. Found 13 Sep during
-# the gitops reconciliation: the procedure that produced 85 GB of deployed
-# data lived nowhere git could see, and this file described a model that was
-# never deployed. Now it is the box's script, with the model named once.
+# History: this used to fetch the Phase 1 smoke-test model into a relative
+# models/ directory and stayed that way after the real model was chosen and
+# downloaded by an uncommitted script in /root (found 13 Sep 2026 during the
+# gitops reconciliation). Since then it is the box's script. 14 Sep 2026 it
+# grew the second Qwen model and the image model when the server became
+# llama-swap in front of several backends.
 #
-# The choice of THIS model over the larger Qwen3-Coder-480B is argued in
-# homelab hosts/ac-box/configuration.nix at services.agent-hub.llm.modelPath,
-# which must name shard 1 of what this fetches. If you change REPO/QUANT here,
-# change modelPath there in the same commit -- they are one fact in two repos.
-#
-# Idempotent and resumable: curl -C - continues a partial shard, and a
-# complete shard is a no-op. Four shards, ~85 GB total; from Hugging Face on a
-# 1 Gbit link this is about an hour.
+# Idempotent and resumable: curl -C - continues a partial file, and a complete
+# file is a no-op. ~180 GB in total; from Hugging Face on a 1 Gbit link that
+# is about two hours the first time. Pass model names to fetch a subset:
+#   fetch-model.sh coder instruct z-image
 set -euo pipefail
 
-REPO="${REPO:-Qwen/Qwen3-Coder-Next-GGUF}"
-QUANT="${QUANT:-Qwen3-Coder-Next-Q8_0}"
-SHARDS="${SHARDS:-4}"
 DEST="${DEST:-/srv/agent-hub/models}"
-
 mkdir -p "$DEST"
 cd "$DEST"
-for i in $(seq 1 "$SHARDS"); do
-  f=$(printf "%s-%05d-of-%05d.gguf" "$QUANT" "$i" "$SHARDS")
-  url="https://huggingface.co/${REPO}/resolve/main/${QUANT}/${f}?download=true"
+
+get() { # get <repo> <path-in-repo> [local-name]
+  local repo=$1 path=$2 f=${3:-$(basename "$2")}
+  local url="https://huggingface.co/${repo}/resolve/main/${path}?download=true"
   echo "=== $(date -Is) fetching $f"
   curl -L --fail --retry 10 --retry-delay 5 --retry-all-errors -C - -o "$f" "$url"
-done
+}
+
+# The coding agent. The choice of this over the larger Qwen3-Coder-480B is
+# argued in homelab hosts/ac-box/configuration.nix. Four shards, ~85 GB.
+coder() {
+  local q=Qwen3-Coder-Next-Q8_0
+  for i in 1 2 3 4; do
+    get Qwen/Qwen3-Coder-Next-GGUF "$q/$(printf '%s-%05d-of-%05d.gguf' "$q" "$i" 4)"
+  done
+}
+
+# The general-purpose sibling: same architecture, size and speed, tuned for
+# instructions and prose rather than code. Serves inquire-platform's rubric
+# scoring. One file, ~85 GB.
+instruct() {
+  get Qwen/Qwen3-Next-80B-A3B-Instruct-GGUF Qwen3-Next-80B-A3B-Instruct-Q8_0.gguf
+}
+
+# Image generation: Z-Image-Turbo (6B DiT, 8 steps, no CFG) for
+# stable-diffusion.cpp, which needs the diffusion model, its Qwen3-4B text
+# encoder, and the FLUX autoencoder. black-forest-labs' own copy of the VAE
+# is gated; Comfy-Org's repackage of the same file is not. ~11 GB.
+z-image() {
+  get leejet/Z-Image-Turbo-GGUF z_image_turbo-Q8_0.gguf
+  get unsloth/Qwen3-4B-Instruct-2507-GGUF Qwen3-4B-Instruct-2507-Q8_0.gguf
+  get Comfy-Org/z_image_turbo split_files/vae/ae.safetensors z_image-vae-ae.safetensors
+}
+
+for m in "${@:-coder instruct z-image}"; do "$m"; done
 echo "=== $(date -Is) done"
 ls -la "$DEST"

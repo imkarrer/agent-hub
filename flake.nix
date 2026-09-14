@@ -26,6 +26,7 @@
       packages.${system} = {
         runner-image = import ./nix/runner-image.nix { inherit pkgs; };
         ik-llama-cpp = import ./nix/ik-llama-cpp.nix { inherit pkgs; };
+        stable-diffusion-cpp = import ./nix/stable-diffusion-cpp.nix { inherit pkgs; };
       };
 
       devShells.${system}.default = pkgs.mkShell {

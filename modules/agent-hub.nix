@@ -17,6 +17,77 @@
 
 let
   cfg = config.services.agent-hub;
+
+  # Which llama-server serves a model. See `llm.engine`.
+  packageFor =
+    engine: if engine == "ik-llama-cpp" then import ../nix/ik-llama-cpp.nix { inherit pkgs; } else pkgs.llama-cpp;
+
+  multi = cfg.llm.models != { };
+
+  # nixpkgs' sd.cpp has no SIMD under Nix; ../nix/stable-diffusion-cpp.nix says why.
+  sdPackage = import ../nix/stable-diffusion-cpp.nix { inherit pkgs; };
+
+  # llama-swap's config, as JSON: YAML is a superset, and this keeps the
+  # generated file a pure function of the options with no templating.
+  # `${PORT}` is llama-swap's own macro for the loopback port it assigns
+  # each backend, substituted before the command is split into argv, so it
+  # must reach the file unescaped.
+  swapModel =
+    name: m:
+    let
+      llamaCmd = lib.escapeShellArgs (
+        [
+          "${packageFor m.engine}/bin/llama-server"
+          "--model"
+          (toString m.modelPath)
+          "--host"
+          "127.0.0.1"
+          "--ctx-size"
+          (toString m.contextSize)
+          "--threads"
+          (toString m.threads)
+        ]
+        ++ cfg.llm.extraArgs
+        ++ m.extraArgs
+      ) + " --port \${PORT}";
+      imageCmd = lib.escapeShellArgs (
+        [
+          "${sdPackage}/bin/sd-server"
+          "--diffusion-model"
+          (toString m.modelPath)
+          "--listen-ip"
+          "127.0.0.1"
+          "-t"
+          (toString m.threads)
+        ]
+        ++ lib.optionals (m.vae != null) [ "--vae" (toString m.vae) ]
+        ++ lib.optionals (m.textEncoder != null) [ "--llm" (toString m.textEncoder) ]
+        ++ m.extraArgs
+      ) + " --listen-port \${PORT}";
+    in
+    {
+      cmd = if m.kind == "image" then imageCmd else llamaCmd;
+      proxy = "http://127.0.0.1:\${PORT}";
+      # llama-server answers /health; sd-server has no /health but does
+      # answer /v1/models once the pipeline is loaded.
+      checkEndpoint = if m.kind == "image" then "/v1/models" else "/health";
+      inherit (m) aliases ttl;
+    };
+
+  swapConfig = pkgs.writeText "agent-hub-llama-swap.json" (
+    builtins.toJSON {
+      # Loopback ports for the backends. Not a LAN allocation, so not in
+      # the port registry; chosen away from anything else on 127.0.0.1.
+      startPort = 18100;
+      # How long a backend may take to answer its checkEndpoint after
+      # start. llama-swap's default is 120 s; a cold 85 GB model read off
+      # NVMe plus ik's run-time repack is under a minute on ac-box, but a
+      # box under memory pressure can take longer and a timeout here is
+      # a spurious "model failed to load".
+      healthCheckTimeout = 600;
+      models = lib.mapAttrs swapModel cfg.llm.models;
+    }
+  );
 in
 {
   options.services.agent-hub = {
@@ -73,18 +144,21 @@ in
 
       package = lib.mkOption {
         type = lib.types.package;
-        default =
-          if cfg.llm.engine == "ik-llama-cpp"
-          then import ../nix/ik-llama-cpp.nix { inherit pkgs; }
-          else pkgs.llama-cpp;
+        default = packageFor cfg.llm.engine;
         defaultText = lib.literalExpression ''pkgs.llama-cpp, or the ik_llama.cpp build when engine = "ik-llama-cpp"'';
         description = "The llama.cpp package providing bin/llama-server. Normally chosen by `engine`; override only to test a different build.";
       };
 
 
       modelPath = lib.mkOption {
-        type = lib.types.path;
-        description = "Absolute path to a GGUF model file under dataDir. No default -- must be set per host.";
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = ''
+          Single-model mode: absolute path to a GGUF model file under
+          dataDir, served directly by llama-server. Must be set per host
+          unless `models` is non-empty, in which case this must stay null
+          and every model lives in `models`.
+        '';
       };
 
       port = lib.mkOption {
@@ -96,6 +170,130 @@ in
         # platform's port registry (homelab/modules/tenant/) ever claims 8100
         # for something else, this needs to move again, not just be trusted.
         default = 8100;
+      };
+
+
+      models = lib.mkOption {
+        default = { };
+        description = ''
+          More than one model behind the one port, swapped on demand. When
+          this is non-empty the unit runs llama-swap on `port` instead of a
+          bare llama-server, and each entry here becomes a backend llama-swap
+          starts on a loopback port the first time a request names it
+          (`"model": "<name>"`, or any of its `aliases`) and stops when a
+          different one is asked for. Every request path the tools use goes
+          through unchanged -- /v1/chat/completions, /v1/messages,
+          /completion, /v1/images/generations -- and llama-swap's own UI at
+          /ui lists the models with a picker; /upstream/<name>/ reaches a
+          backend's native UI directly.
+
+          One model at a time is the point: on a box where one model fills
+          a third of RAM and all of the fenced cores, two running at once
+          would thrash. Load time between swaps is the cost, and on ac-box
+          it is 20-60 s. Leave this empty for the single-model unit
+          (`modelPath`), which the WSL2 prototype still uses.
+        '';
+        type = lib.types.attrsOf (
+          lib.types.submodule (
+            { name, ... }:
+            {
+              options = {
+                kind = lib.mkOption {
+                  type = lib.types.enum [ "llama" "image" ];
+                  default = "llama";
+                  description = ''
+                    "llama": a GGUF served by llama-server (`engine` picks
+                    which build). "image": a diffusion model served by
+                    stable-diffusion.cpp's sd-server, which speaks the same
+                    OpenAI images API llama-swap routes.
+                  '';
+                };
+
+                modelPath = lib.mkOption {
+                  type = lib.types.path;
+                  description = ''
+                    The GGUF. For a sharded GGUF, shard 1. For kind = "image",
+                    the diffusion model (sd-server's --diffusion-model);
+                    `vae` and `textEncoder` carry the rest of the pipeline.
+                  '';
+                };
+
+                vae = lib.mkOption {
+                  type = lib.types.nullOr lib.types.path;
+                  default = null;
+                  description = "kind = \"image\" only: the autoencoder (sd-server --vae).";
+                };
+
+                textEncoder = lib.mkOption {
+                  type = lib.types.nullOr lib.types.path;
+                  default = null;
+                  description = "kind = \"image\" only: the text encoder / LLM (sd-server --llm).";
+                };
+
+                engine = lib.mkOption {
+                  type = lib.types.enum [ "llama-cpp" "ik-llama-cpp" ];
+                  default = cfg.llm.engine;
+                  defaultText = lib.literalExpression "config.services.agent-hub.llm.engine";
+                  description = "kind = \"llama\" only: which llama-server build serves this model. Defaults to the unit-wide `engine`.";
+                };
+
+                contextSize = lib.mkOption {
+                  type = lib.types.int;
+                  default = cfg.llm.contextSize;
+                  defaultText = lib.literalExpression "config.services.agent-hub.llm.contextSize";
+                  description = "kind = \"llama\" only: --ctx-size for this model.";
+                };
+
+                threads = lib.mkOption {
+                  type = lib.types.int;
+                  default = cfg.llm.threads;
+                  defaultText = lib.literalExpression "config.services.agent-hub.llm.threads";
+                  description = "--threads (llama-server) or -t (sd-server). Same contract as the unit-wide `threads`: match the tier's allowance, never auto-detect.";
+                };
+
+                extraArgs = lib.mkOption {
+                  type = lib.types.listOf lib.types.str;
+                  default = [ ];
+                  description = "Extra CLI args for this backend, after the ones the module emits. Same rules as the unit-wide `extraArgs`; for kind = \"image\" they are sd-server's.";
+                };
+
+                aliases = lib.mkOption {
+                  type = lib.types.listOf lib.types.str;
+                  default = [ ];
+                  example = [ "claude-sonnet-4-6" ];
+                  description = ''
+                    Other names a request may use for this model. Useful for
+                    code that hard-codes a hosted model's name: point the
+                    Anthropic SDK at this port and "claude-sonnet-4-6" lands
+                    here instead of 404ing. A name may alias only one model.
+                  '';
+                };
+
+                ttl = lib.mkOption {
+                  type = lib.types.int;
+                  default = 0;
+                  description = "Seconds of idleness after which llama-swap unloads this model; 0 keeps it loaded until another is requested.";
+                };
+              };
+            }
+          )
+        );
+      };
+
+      imagePackage = lib.mkOption {
+        type = lib.types.package;
+        readOnly = true;
+        default = sdPackage;
+        defaultText = lib.literalExpression "import ../nix/stable-diffusion-cpp.nix { inherit pkgs; }";
+        description = "Read-only: the stable-diffusion.cpp build image models run on (nixpkgs' package with AVX2/FMA/F16C turned on; see nix/stable-diffusion-cpp.nix).";
+      };
+
+      swapConfigFile = lib.mkOption {
+        type = lib.types.package;
+        readOnly = true;
+        default = swapConfig;
+        defaultText = lib.literalMD "the generated llama-swap config";
+        description = "Read-only: the llama-swap config generated from `models`, so it can be inspected with `nix build .#nixosConfigurations.<host>.config.services.agent-hub.llm.swapConfigFile`.";
       };
 
       contextSize = lib.mkOption {
@@ -330,33 +528,55 @@ in
     };
 
     systemd.services.agent-hub-llm = lib.mkIf cfg.llm.enable {
-      description = "agent-hub llama.cpp model server (LAN only)";
+      description =
+        if multi then
+          "agent-hub model server: llama-swap over ${toString (builtins.length (builtins.attrNames cfg.llm.models))} models (LAN only)"
+        else
+          "agent-hub llama.cpp model server (LAN only)";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
       serviceConfig = {
         User = "agent-hub";
         Group = "agent-hub";
-        ExecStart = lib.escapeShellArgs (
-          [
-            "${cfg.llm.package}/bin/llama-server"
-            "--model"
-            cfg.llm.modelPath
-            "--host"
-            cfg.lanAddress
-            "--port"
-            (toString cfg.llm.port)
-            "--ctx-size"
-            (toString cfg.llm.contextSize)
-            "--threads"
-            (toString cfg.llm.threads)
-          ]
-          ++ cfg.llm.extraArgs
-        );
+        # Multi-model: llama-swap owns the port and starts the backends as
+        # its own children, so everything a host sets on this unit -- the
+        # slice, the cpuset, the NUMA policy -- is inherited by whichever
+        # model is loaded. Single-model: llama-server on the port directly.
+        ExecStart =
+          if multi then
+            lib.escapeShellArgs [
+              "${pkgs.llama-swap}/bin/llama-swap"
+              "-config"
+              "${swapConfig}"
+              "-listen"
+              "${cfg.lanAddress}:${toString cfg.llm.port}"
+            ]
+          else
+            lib.escapeShellArgs (
+              [
+                "${cfg.llm.package}/bin/llama-server"
+                "--model"
+                (toString cfg.llm.modelPath)
+                "--host"
+                cfg.lanAddress
+                "--port"
+                (toString cfg.llm.port)
+                "--ctx-size"
+                (toString cfg.llm.contextSize)
+                "--threads"
+                (toString cfg.llm.threads)
+              ]
+              ++ cfg.llm.extraArgs
+            );
+        # llama-swap stops its backends itself on SIGTERM; give a model
+        # mid-load time to die cleanly before systemd escalates.
+        TimeoutStopSec = lib.mkIf multi 90;
         Restart = "on-failure";
         RestartSec = 5;
       };
     };
+
 
     environment.systemPackages = lib.optional cfg.runner.enable (
       pkgs.writeShellApplication {
@@ -441,7 +661,29 @@ in
       iptables -X AGENT-HUB-RUNNER-EGRESS 2>/dev/null || true
     '';
 
-    assertions = [
+    assertions = lib.optionals cfg.llm.enable [
+      {
+        assertion = multi -> cfg.llm.modelPath == null;
+        message = "services.agent-hub.llm: set either modelPath (single model) or models (llama-swap), not both.";
+      }
+      {
+        assertion = multi || cfg.llm.modelPath != null;
+        message = "services.agent-hub.llm: modelPath must be set when models is empty.";
+      }
+      {
+        assertion = lib.all (m: m.kind == "llama" || m.vae != null) (lib.attrValues cfg.llm.models);
+        message = "services.agent-hub.llm.models: an image model needs a vae.";
+      }
+      {
+        assertion =
+          let
+            names = lib.concatMap (m: m.aliases) (lib.attrValues cfg.llm.models) ++ lib.attrNames cfg.llm.models;
+          in
+          lib.length names == lib.length (lib.unique names);
+        message = "services.agent-hub.llm.models: model names and aliases must be unique across all models.";
+      }
+
+    ] ++ [
       {
         assertion = cfg.lanAddress != "0.0.0.0";
         message = "services.agent-hub.lanAddress must be the LAN IP, not 0.0.0.0.";
