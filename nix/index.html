@@ -1,0 +1,79 @@
+<!doctype html>
+<!--
+  The front page of agent-hub's port, served by nginx at / when
+  services.agent-hub.llm.landingPage is on; everything else on the port is
+  proxied to llama-swap. llama-swap's own /ui lists every model on every
+  tab because it does not know what a model is; this page reads the kind
+  the module puts in each model's metadata (/v1/models) and shows chat
+  models and image models apart, each linking to that backend's own UI
+  (/upstream/<id>/: ik_llama.cpp's chat page, or sd-ui.html for images).
+  Opening one of those links is what loads the model.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent-hub</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.45 system-ui, sans-serif; }
+  body { max-width: 52rem; margin: 0 auto; padding: 2rem 1rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  .sub { opacity: .7; margin: 0 0 2rem; }
+  h2 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; text-transform: uppercase; letter-spacing: .05em; opacity: .8; }
+  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+  li a { display: block; padding: .75rem 1rem; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: .5rem; text-decoration: none; color: inherit; }
+  li a:hover { border-color: currentColor; }
+  .id { font-weight: 600; font-family: ui-monospace, monospace; }
+  .desc { display: block; font-size: .9rem; opacity: .75; margin-top: .15rem; }
+  .badge { float: right; font-size: .75rem; padding: .1rem .5rem; border-radius: 1rem; background: color-mix(in srgb, currentColor 15%, transparent); }
+  .foot { margin-top: 2.5rem; font-size: .9rem; opacity: .75; }
+  .foot a { color: inherit; }
+  .err { color: #c33; }
+</style>
+</head>
+<body>
+<h1>agent-hub</h1>
+<p class="sub">One model is loaded at a time, except where the configuration lets two stay resident. Opening a model loads it — 20–60&nbsp;s if it was not already.</p>
+<h2>Chat</h2>
+<ul id="chat"><li>loading…</li></ul>
+<h2>Images</h2>
+<ul id="image"><li>loading…</li></ul>
+<p class="foot">
+  <a href="ui/">llama-swap's console</a> — load/unload, logs, token metrics; its playground lists every model on every tab, so use the links above instead.
+  · <a href="v1/models">/v1/models</a> · <a href="running">/running</a>
+</p>
+<script>
+  (async () => {
+    let models = [], running = new Set();
+    try {
+      const m = await fetch('v1/models').then(r => r.json());
+      models = m.data || [];
+      const r = await fetch('running').then(r => r.json()).catch(() => ({ running: [] }));
+      running = new Set((r.running || []).filter(x => x.state === 'ready').map(x => x.model));
+    } catch (e) {
+      document.getElementById('chat').innerHTML = `<li class="err">could not read the model list: ${e.message}</li>`;
+      document.getElementById('image').innerHTML = '';
+      return;
+    }
+    const lists = { chat: [], image: [] };
+    for (const m of models) {
+      const kind = (m.metadata && m.metadata.kind) === 'image' ? 'image' : 'chat';
+      lists[kind].push(m);
+    }
+    for (const [kind, arr] of Object.entries(lists)) {
+      const ul = document.getElementById(kind);
+      ul.innerHTML = arr.length ? '' : '<li><em>none configured</em></li>';
+      for (const m of arr) {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.href = `upstream/${encodeURIComponent(m.id)}/`;
+        a.innerHTML = `<span class="id"></span>${running.has(m.id) ? '<span class="badge">loaded</span>' : ''}<span class="desc"></span>`;
+        a.querySelector('.id').textContent = m.id;
+        a.querySelector('.desc').textContent = m.description || '';
+        li.append(a); ul.append(li);
+      }
+    }
+  })();
+</script>
+</body>
+</html>

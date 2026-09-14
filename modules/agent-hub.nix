@@ -81,6 +81,8 @@ let
       # The UI lists every model on every playground tab; it cannot know a
       # model's kind. The description is where a person learns which tab.
       name = name;
+      # Passed through /v1/models untouched; nix/index.html reads `kind`.
+      metadata = { inherit (m) kind; };
       description =
         if m.description != "" then m.description
         else if m.kind == "image" then "image generation -- use the Images tab (or /upstream/${name}/); it has no chat endpoint"
@@ -338,6 +340,21 @@ in
           unit's cores, and that the tier's memory ceiling must hold all
           of them. A model in no set still runs alone and evicts everything
           else when asked for. Names are keys of `models`, not aliases.
+        '';
+      };
+
+      landingPage = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Multi-model mode only. Put nginx on `lanAddress`:`port` serving
+          nix/index.html at / -- chat models and image models listed apart,
+          each linking to its backend's own UI -- and proxying everything
+          else to llama-swap, which then listens on 127.0.0.1:`port` instead.
+          llama-swap's own /ui stays reachable; it just is not the front
+          door, because it lists every model on every playground tab. Adds
+          nginx.service to the host; a tenant contract that slices units by
+          name must be told.
         '';
       };
 
@@ -603,7 +620,7 @@ in
               "-config"
               "${swapConfig}"
               "-listen"
-              "${cfg.lanAddress}:${toString cfg.llm.port}"
+              "${if cfg.llm.landingPage then "127.0.0.1" else cfg.lanAddress}:${toString cfg.llm.port}"
             ]
           else
             lib.escapeShellArgs (
@@ -630,6 +647,33 @@ in
       };
     };
 
+
+    services.nginx = lib.mkIf (cfg.llm.enable && cfg.llm.landingPage) {
+      enable = true;
+      recommendedProxySettings = true;
+      virtualHosts."agent-hub" = {
+        listen = [ { addr = cfg.lanAddress; port = cfg.llm.port; } ];
+        locations."= /" = {
+          root = pkgs.runCommand "agent-hub-landing" { } "mkdir -p $out; cp ${../nix/index.html} $out/index.html";
+          tryFiles = "/index.html =404";
+        };
+        locations."/" = {
+          proxyPass = "http://127.0.0.1:${toString cfg.llm.port}";
+          proxyWebsockets = true;
+          # Answers stream (chat tokens, llama-swap's SSE at /api/events)
+          # and take minutes (an image is minutes of CPU; a 32k prompt is
+          # minutes of prefill): no buffering, and timeouts that outlast
+          # any single request. Image edits upload an image.
+          extraConfig = ''
+            proxy_buffering off;
+            proxy_request_buffering off;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+            client_max_body_size 64m;
+          '';
+        };
+      };
+    };
 
     environment.systemPackages = lib.optional cfg.runner.enable (
       pkgs.writeShellApplication {
@@ -722,6 +766,10 @@ in
       {
         assertion = multi || cfg.llm.modelPath != null;
         message = "services.agent-hub.llm: modelPath must be set when models is empty.";
+      }
+      {
+        assertion = cfg.llm.landingPage -> multi;
+        message = "services.agent-hub.llm.landingPage needs models (multi-model mode); the single-model unit serves llama-server's own UI.";
       }
       {
         assertion = lib.all (n: lib.hasAttr n cfg.llm.models) (lib.concatLists cfg.llm.concurrent);
