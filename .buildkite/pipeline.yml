@@ -20,8 +20,16 @@ agents:
 steps:
   - label: ":nix: flake evaluates, scripts lint"
     key: check
+    # Not --no-build. nix/ik-llama-cpp.nix and nix/stable-diffusion-cpp.nix
+    # import files out of their fetched sources (callPackage
+    # "${src}/.devops/nix/scope.nix"), which is import-from-derivation: the
+    # source must be IN the store to evaluate. On a WSL box that has built
+    # the packages it already is; on the agent's own /nix it is not, and
+    # --no-build turns the fetch into "path is not valid" (build 1, 15 Sep).
+    # Without the flag nix fetches the two sources (once; they stay in the
+    # agent's store) and builds nothing -- this flake has no `checks`.
     command: |
-      nix --extra-experimental-features "nix-command flakes" flake check --no-build
+      nix --extra-experimental-features "nix-command flakes" flake check
       nix --extra-experimental-features "nix-command flakes" run nixpkgs#shellcheck -- scripts/*.sh
 
   - wait: ~
