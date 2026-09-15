@@ -1,0 +1,50 @@
+# GitHub push -> this file, on the ac-box agent (queue=self). Source checks
+# only: nothing here touches the box, and nothing here can -- this tree
+# reaches ac-box solely as a flake input of homelab.
+#
+# The gate that matters for this tree is the COMPOSITION: does ac-box still
+# evaluate with this module at this commit? That cannot run here, because
+# the checkout is agent-hub and the host that composes it lives in homelab
+# (scripts/hub-gates.sh gates a module-only tree by --override-input from
+# the hub). It runs one hop later instead: homelab's bump-lock step moves
+# the input to this commit and runs `nix flake check -L` on the result
+# BEFORE pushing, so a commit that breaks ac-box never lands on homelab
+# main. What runs here is the cheap half -- the flake evaluates, the
+# scripts pass shellcheck -- so an obvious break is red in seconds on the
+# tree that made it, rather than red on homelab's build with this tree's
+# name buried in a lock diff.
+
+agents:
+  queue: self
+
+steps:
+  - label: ":nix: flake evaluates, scripts lint"
+    key: check
+    command: |
+      nix --extra-experimental-features "nix-command flakes" flake check --no-build
+      nix --extra-experimental-features "nix-command flakes" run nixpkgs#shellcheck -- scripts/*.sh
+
+  - wait: ~
+
+  # Tell homelab this tree moved. Its bump-lock step (scripts/hub-bump-lock.sh
+  # there) bumps the `agent-hub` input, runs homelab's gates on the result,
+  # and pushes; that push is an ordinary homelab build, whose queue-closure
+  # stages the closure, which homelab-deploy applies within minutes unless
+  # someone is racing (ADR 0008). So: a green push here is a switched box in
+  # about a quarter of an hour, with nobody in the loop. That is the chain
+  # the operator asked for on 15 Sep 2026, and the reason this file did not
+  # exist before then -- see homelab/docs/architecture.md Part III row 24.
+  - trigger: homelab
+    label: ":arrow_up: bump homelab's lock"
+    if: build.branch == "main"
+    async: true
+    # A trigger that cannot fire (slug renamed, permission missing) must not
+    # redden THIS build. The bump simply does not happen, and hub-status
+    # shows the lock behind its tip -- which is the only signal there is, so
+    # read it.
+    soft_fail: true
+    build:
+      message: "agent-hub ${BUILDKITE_COMMIT} went green"
+      env:
+        HOMELAB_BUMP_INPUT: agent-hub
+        HOMELAB_BUMP_REV: "${BUILDKITE_COMMIT}"
