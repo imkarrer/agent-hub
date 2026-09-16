@@ -16,7 +16,7 @@ Two machines, two jobs, same as the arcade project's Nix module split:
 | --- | --- | --- |
 | RAM available | ~30GB (WSL2 default cap, raisable via `.wslconfig`) | 256GB |
 | Role | Prototype the module and harness against a small model | Run the real thing against a large quantized model |
-| Model target | Qwen2.5-Coder, 7-14B class, Q4/Q5 GGUF | 70B+ class, Q6/Q8 GGUF, large `--ctx-size` |
+| Model target | Qwen3-Coder-30B-A3B Q4 (tool calling) beside the Phase 1 Qwen2.5-Coder-14B Q4, behind llama-swap | 70B+ class, Q6/Q8 GGUF, large `--ctx-size` |
 
 Nothing here should assume it's the only thing on ac-box -- firewall scoping and the
 `agent-hub` system user follow the same LAN-interface-only pattern `arcade-hub.nix` uses,
@@ -181,7 +181,43 @@ and `embed` (Qwen3-Embedding-0.6B, `kind = "embedding"`, `/v1/embeddings` only).
 alone unless `concurrent` lists it in a set that may stay resident together; a swap is 20-60 s.
 `/` on that port is the front page (`landingPage`), `/upstream/<name>/` each backend's own UI.
 `scripts/fetch-model.sh` on the box fetches every file those entries name. The single-model
-unit (`modelPath`) is unchanged and is what the WSL2 prototype runs.
+unit (`modelPath`) is unchanged; the WSL2 box has since moved to `models` too, two entries,
+nothing `concurrent` (30 GB holds one of them at a time).
+
+**Consuming it from a coding agent (opencode).** The port is a plain OpenAI-compatible
+`/v1`; the `model` in a request is an entry name from `models` (`coder`, `instruct`), which
+`GET /v1/models` lists -- not the GGUF's name. Three things a client cannot fix on its side,
+all found 16 Sep 2026 pointing opencode at both boxes:
+
+- The backend must run with `--jinja` (in `llm.extraArgs`), or every request carrying a
+  `tools` array is answered `500 "tools param requires --jinja flag"`.
+- The model has to emit the template's tool-call format. Qwen2.5-Coder-14B-Instruct answers
+  a tools request with a ```` ```json ```` fence instead of `<tool_call>` (deterministic at
+  temperature 0, both engines, with and without flash-attn), so it drives aider but not
+  opencode.
+- The server's parser has to accept what the model emits. Qwen3-Coder-30B-A3B omits the
+  opening `<tool_call>` token and goes straight to `<function=...>` (7 of 7 samples; the
+  token is absent from the generated ids). The ik build pinned in `nix/ik-llama-cpp.nix` and
+  nixpkgs' llama-cpp b9190 both have only the generic template-derived parser, which needs
+  that literal, so every call came back as plain content. Mainline llama.cpp newer than b9190
+  has a dedicated Qwen3-Coder parser (grammar armed on `<function=<name>>`, `<tool_call>`
+  optional); the WSL2 box serves `coder` with b11007 for that reason, built with this CPU's
+  ISA named explicitly (nixpkgs strips `-march=native`). Whether Qwen3-Coder-Next on ac-box
+  omits the token the same way is not yet measured.
+
+An `opencode.json` provider entry per box:
+
+```json
+"acbox": {
+  "npm": "@ai-sdk/openai-compatible",
+  "options": { "baseURL": "http://192.168.1.50:8100/v1", "apiKey": "not-needed" },
+  "models": { "coder": { "tool_call": true, "limit": { "context": 32768, "output": 8192 } } }
+}
+```
+
+`scripts/compare.sh` sends one identical request to each server and prints prefill and
+generation tok/s from the `timings` llama-server returns -- one request per box, nothing
+run on it -- for the box-to-box comparison the table at the top of this README promises.
 
 **A vector store beside it.** `services.agent-hub.vectors` runs nixpkgs' Qdrant on the LAN
 address (`:6333`, HTTP only) as the store the embedding model writes into; nothing indexes
