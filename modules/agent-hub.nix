@@ -758,6 +758,16 @@ in
       # /dashboard on the same port for looking at collections by hand.
     };
 
+    # Binding lanAddress means waiting for it: nixpkgs' unit orders after
+    # network.target only, and at boot on 16 Sep 2026 qdrant hit its start
+    # limit in 200 ms with "Cannot assign requested address" before
+    # NetworkManager had the address up. Every earlier switch had found the
+    # address already there. Same two lines the model server carries above.
+    systemd.services.qdrant = lib.mkIf cfg.vectors.enable {
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+    };
+
     environment.systemPackages = lib.optional cfg.runner.enable (
       pkgs.writeShellApplication {
         name = "agent-hub-run-task";
