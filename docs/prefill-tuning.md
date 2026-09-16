@@ -173,3 +173,22 @@ chat template applied and `usage` populated.
 - The BLAS variant of ik (`useBlas = true`); the fork's own kernels were the
   point of testing it.
 - Anything on the GPU-less assumption itself.
+
+## Addendum, 16 Sep 2026: the mainline rows were a scalar build
+
+Finding 3 compares ik against nixpkgs' `llama-cpp` b9190, and that binary is
+built `GGML_NATIVE=OFF` with no CPU-variant dispatch: its `system_info` line
+reads `CPU : LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 |` and nothing else --
+no AVX2, no FMA, no F16C. Found on the WSL2 box while setting up its local
+server, where the same build did 2.6 tok/s prefill on a dense 14B Q4 and ik's
+generic-AVX2 build did 33 on the same file. So "ik is the 5x" is measured
+against no SIMD at all; how much of the 5x is `iqk_mul_mat` and how much is
+AVX2 itself is not separated by any row above. A fair mainline row needs
+mainline built with the ISA named explicitly (`-DGGML_AVX2=ON -DGGML_FMA=ON
+-DGGML_F16C=ON`; ac-box is Broadwell, no AVX-512) -- `GGML_NATIVE=ON` does not
+do it under Nix, cc-wrapper strips `-march=native`. Not re-run on ac-box; the
+`bench.sh` harness with `MAIN_BIN` pointed at such a build is the experiment.
+It matters beyond the number: mainline newer than b9190 is the build whose
+tool-call parser handles Qwen3-Coder models that omit `<tool_call>` (see the
+README's opencode section), so if a SIMD mainline came close to ik, it would
+be the better engine for `coder`, not merely a fair baseline.

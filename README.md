@@ -6,15 +6,17 @@ Local, self-hosted coding agent. CPU/RAM only, no external inference API.
 
 `ac-box` (the hp 840z) has a lot of spare RAM once the Assetto Corsa server and
 [home-arcade](https://github.com/imkarrer/home-arcade) hub are accounted for. No discrete
-GPU on that box or on this dev machine, so inference is CPU-bound and will be slow
-token-for-token -- the tradeoff is a much bigger quantized model and a much bigger context
-window than a GPU-VRAM-limited setup could hold, entirely resident in RAM.
+GPU on that box, so inference there is CPU-bound and slow token-for-token -- the tradeoff
+is a much bigger quantized model and a much bigger context window than a GPU-VRAM-limited
+setup could hold, entirely resident in RAM. (Earlier drafts said the dev machine had no GPU
+either; it has an RTX 4080 that WSL2 exposes, found 16 Sep 2026 -- see the table.)
 
 Two machines, two jobs, same as the arcade project's Nix module split:
 
 | | This dev machine (WSL2 `NixOS`) | ac-box (hp 840z) |
 | --- | --- | --- |
 | RAM available | ~30GB (WSL2 default cap, raisable via `.wslconfig`) | 256GB |
+| GPU | RTX 4080, 16 GB, via `/dev/dxg` (CUDA build of llama.cpp b11007) | none |
 | Role | Prototype the module and harness against a small model | Run the real thing against a large quantized model |
 | Model target | Qwen3-Coder-30B-A3B Q4 (tool calling) beside the Phase 1 Qwen2.5-Coder-14B Q4, behind llama-swap | 70B+ class, Q6/Q8 GGUF, large `--ctx-size` |
 
@@ -202,8 +204,10 @@ all found 16 Sep 2026 pointing opencode at both boxes:
   that literal, so every call came back as plain content. Mainline llama.cpp newer than b9190
   has a dedicated Qwen3-Coder parser (grammar armed on `<function=<name>>`, `<tool_call>`
   optional); the WSL2 box serves `coder` with b11007 for that reason, built with this CPU's
-  ISA named explicitly (nixpkgs strips `-march=native`). Whether Qwen3-Coder-Next on ac-box
-  omits the token the same way is not yet measured.
+  ISA named explicitly (nixpkgs strips `-march=native`) and with CUDA. On ac-box the
+  question does not arise: Qwen3-Coder-Next opens every call with `<tool_call>` (raw
+  `/completion` on the box, 4 of 4 samples), and after `--jinja` landed (homelab 7e095ae)
+  opencode ran a tool call through it end to end.
 
 An `opencode.json` provider entry per box:
 
@@ -218,6 +222,10 @@ An `opencode.json` provider entry per box:
 `scripts/compare.sh` sends one identical request to each server and prints prefill and
 generation tok/s from the `timings` llama-server returns -- one request per box, nothing
 run on it -- for the box-to-box comparison the table at the top of this README promises.
+16 Sep 2026, a 1.6k-token prompt: ac-box `coder` 135 tok/s prefill / 13 gen; WSL2 `coder`
+(30B-A3B, 24 layers' experts on the CPU, the rest and the KV cache on the GPU) 477 / 44;
+WSL2 `coder-14b` fully on the GPU 3859 / 60. An opencode turn that needs one tool call
+takes ~18 s locally and ~2 min against ac-box, almost all of it the first prefill.
 
 **A vector store beside it.** `services.agent-hub.vectors` runs nixpkgs' Qdrant on the LAN
 address (`:6333`, HTTP only) as the store the embedding model writes into; nothing indexes
