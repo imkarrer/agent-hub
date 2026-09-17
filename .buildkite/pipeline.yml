@@ -15,14 +15,34 @@
 #
 # The first build after the manifest lands is slow: the two flake packages
 # (ik_llama.cpp, stable-diffusion.cpp) have no binary in the catalog, so
-# the agent's nix builds them from source on its four cores. The plugin's
-# post-command hook then pushes the environment's closure to the MinIO
-# cache (S3_CACHE_PUSH), so every later cold container substitutes instead.
+# the agent's nix builds them from source. The plugin's post-command hook
+# then pushes the environment's closure to the MinIO cache (S3_CACHE_PUSH),
+# so every later cold container substitutes instead.
+#
+# ...and on two cores, not four. Build 6 (17 Sep 2026) OOM-killed cc1plus:
+# the agent's container sees nproc=4 (batch's two physical cores plus SMT
+# siblings), ninja ran -j4 on the fork's iqk template units, and four of
+# those exceed batch.slice's 12.5 GiB ceiling. `cores = 2` is the agent's
+# setting to make (ac-host compose/docker-compose.buildkite.yml carries it),
+# but a compose change reaches the running agent only at its next recreate,
+# so this file repeats the agent's whole NIX_CONFIG below with cores added
+# -- repeats, because a job-level NIX_CONFIG REPLACES the agent's variable
+# rather than merging with it, and dropping sandbox-fallback = false would
+# be worse than the OOM. Remove the env block once hub-status shows the
+# agent recreated past that compose commit. Steps also run in sequence
+# (depends_on) so one activation builds the environment and the other two
+# find it, instead of three evaluators contending for the same ceiling.
 
 agents:
   queue: self
 
 env:
+  # INTERIM -- header, last paragraph. Mirrors the agent's NIX_CONFIG plus
+  # cores = 2; delete when the agent carries it.
+  NIX_CONFIG: |
+    sandbox = true
+    sandbox-fallback = false
+    cores = 2
   S3_CACHE_BUCKET: flox-binary-cache
   S3_CACHE_ENDPOINT: http://minio:9000
   S3_CACHE_REGION: us-east-1
@@ -39,6 +59,7 @@ steps:
 
   - label: ":flox: scripts lint"
     key: lint
+    depends_on: test
     command: bash scripts/ci_lint.sh
     plugins:
       - imkarrer/flox#main:
@@ -46,6 +67,7 @@ steps:
 
   - label: ":nix: flake evaluates"
     key: check
+    depends_on: test
     # Not --no-build. nix/ik-llama-cpp.nix and nix/stable-diffusion-cpp.nix
     # import files out of their fetched sources (callPackage
     # "${src}/.devops/nix/scope.nix"), which is import-from-derivation: the
