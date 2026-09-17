@@ -5,3 +5,5 @@ models/
 *.gguf
 .claude/settings.local.json
 scripts/bench/results/
+# ik llama-server writes its log into the cwd; running the environment from the checkout leaves this here.
+llama.log

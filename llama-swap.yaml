@@ -1,0 +1,166 @@
+# The model table behind :8100 -- what modules/agent-hub.nix generates from
+# `services.agent-hub.llm.models` on ac-box, written by hand for the flox
+# environment (.flox/env/manifest.toml). Read from the live config on 17 Sep
+# 2026 (/nix/store/...-agent-hub-llama-swap.json on the box): six models,
+# same names, same flags in the same order, same concurrency set. The only
+# differences are the `${env.*}` macros where the module had store paths
+# and host constants, and YAML where it wrote JSON.
+#
+# Run it with the environment's binaries on PATH, i.e. from `flox activate`:
+#   flox activate -- llama-swap -config llama-swap.yaml -listen 127.0.0.1:8100
+# Every `${env.X}` here is set by the manifest's hook (defaults = the box) or
+# by flox itself (FLOX_ENV); llama-swap refuses to load if one is missing,
+# which is the check you want.
+#
+# `${PORT}` is llama-swap's own macro, the loopback port it assigns a
+# backend; it must stay literal.
+
+# Loopback ports for the backends, from AGENT_HUB_BACKEND_PORT up.
+startPort: ${env.AGENT_HUB_BACKEND_PORT}
+
+# How long a backend may take to answer its checkEndpoint after start.
+# llama-swap's default is 120 s; a cold 85 GB model off NVMe plus ik's
+# run-time repack is under a minute on ac-box, but a box under memory
+# pressure can take longer and a timeout here is a spurious "failed to load".
+healthCheckTimeout: 600
+
+macros:
+  llama_server: "${env.FLOX_ENV}/bin/llama-server"
+  sd_server: "${env.FLOX_ENV}/bin/sd-server"
+  models: "${env.AGENT_HUB_MODELS}"
+  threads: "${env.AGENT_HUB_THREADS}"
+  ctx: "${env.AGENT_HUB_CTX}"
+  # The module's `llm.extraArgs`, appended to every llama backend after the
+  # flags it emits. hosts/ac-box/configuration.nix argues each one: -rtr
+  # (repack at load; disables mmap so the model is anonymous memory under
+  # the unit's NUMAPolicy), --flash-attn on, --jinja (tool calls; without
+  # it every request carrying `tools` is a 500), --metrics (per-backend
+  # /metrics on the loopback port; not scraped yet).
+  llama_extra: "-rtr --flash-attn on --jinja --metrics"
+  # The image backends' shared tail: sd-server's UI page (nixpkgs ships
+  # none), served at the backend's root, so /upstream/<name>/ on :8100.
+  sd_ui: "--serve-html-path ${env.AGENT_HUB_ASSETS}/sd-ui.html"
+
+models:
+  # Qwen3-Coder-Next, 80B total / 3B active MoE, Q8_0, four shards; shard 1
+  # is named and llama.cpp finds the rest. --cache-ram 12288: the
+  # server-side prompt cache sized for ~five 32k agent conversations.
+  coder:
+    cmd: >
+      ${llama_server} --model ${models}/Qwen3-Coder-Next-Q8_0-00001-of-00004.gguf
+      --host 127.0.0.1 --ctx-size ${ctx} --threads ${threads}
+      ${llama_extra} --cache-ram 12288 --port ${PORT}
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /health
+    aliases: []
+    ttl: 0
+    name: coder
+    description: "Qwen3-Coder-Next 80B-A3B Q8_0 -- code. Chat tab."
+    metadata:
+      kind: llama
+
+  # The same architecture tuned for instructions and prose. The aliases are
+  # the hosted model names inquire-platform hard-codes, so its Anthropic SDK
+  # pointed at this port lands here unchanged.
+  instruct:
+    cmd: >
+      ${llama_server} --model ${models}/Qwen3-Next-80B-A3B-Instruct-Q8_0.gguf
+      --host 127.0.0.1 --ctx-size ${ctx} --threads ${threads}
+      ${llama_extra} --cache-ram 8192 --port ${PORT}
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /health
+    aliases:
+      - claude-sonnet-4-6
+      - claude-haiku-4-5-20251001
+    ttl: 0
+    name: instruct
+    description: "Qwen3-Next-80B-A3B-Instruct Q8_0 -- prose, judgement, inquire-platform scoring. Chat tab."
+    metadata:
+      kind: llama
+
+  # Embeddings for Qdrant: llama-server in embedding-only mode, both batch
+  # sizes raised to the context so a chunk that fits the context embeds in
+  # one call. Its own --ctx-size 8192 (the module's per-model contextSize),
+  # the unit-wide thread count (embedding is prefill, prefill is
+  # compute-bound). --jinja is inherited and ignored: no chat endpoint.
+  embed:
+    cmd: >
+      ${llama_server} --model ${models}/Qwen3-Embedding-0.6B-Q8_0.gguf
+      --host 127.0.0.1 --ctx-size 8192 --threads ${threads}
+      --embedding --batch-size 8192 --ubatch-size 8192
+      ${llama_extra} --port ${PORT}
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /health
+    aliases: []
+    ttl: 0
+    name: embed
+    description: "Qwen3-Embedding-0.6B Q8_0 -- 1024-dim embeddings for Qdrant on :6333. POST /v1/embeddings."
+    metadata:
+      kind: embedding
+
+  # FLUX.2 klein, 4-step distilled, each with the Qwen3 text encoder it was
+  # trained against (the ORIGINAL 4B / 8B, not Z-Image's 2507 Instruct) and
+  # the FLUX.2 VAE. sd-server has no /health; /v1/models answers once the
+  # pipeline is loaded.
+  flux2-klein-4b:
+    cmd: >
+      ${sd_server} --diffusion-model ${models}/flux-2-klein-4b-Q8_0.gguf
+      --listen-ip 127.0.0.1 -t ${threads} ${sd_ui}
+      --vae ${models}/flux2-vae.safetensors --llm ${models}/Qwen3-4B-Q8_0.gguf
+      --steps 4 --cfg-scale 1.0 --diffusion-fa --listen-port ${PORT}
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /v1/models
+    aliases: []
+    ttl: 0
+    name: flux2-klein-4b
+    description: "FLUX.2 klein 4B Q8_0 -- images, fastest here; also edits. Images tab only."
+    metadata:
+      kind: image
+
+  flux2-klein-9b:
+    cmd: >
+      ${sd_server} --diffusion-model ${models}/flux-2-klein-9b-Q8_0.gguf
+      --listen-ip 127.0.0.1 -t ${threads} ${sd_ui}
+      --vae ${models}/flux2-vae.safetensors --llm ${models}/Qwen3-8B-Q8_0.gguf
+      --steps 4 --cfg-scale 1.0 --diffusion-fa --listen-port ${PORT}
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /v1/models
+    aliases: []
+    ttl: 0
+    name: flux2-klein-9b
+    description: "FLUX.2 klein 9B Q8_0 -- images, best quality here; also edits. Images tab only."
+    metadata:
+      kind: image
+
+  # Z-Image-Turbo: 8 steps, no CFG, its own Qwen3-4B-Instruct-2507 encoder
+  # and VAE.
+  z-image-turbo:
+    cmd: >
+      ${sd_server} --diffusion-model ${models}/z_image_turbo-Q8_0.gguf
+      --listen-ip 127.0.0.1 -t ${threads} ${sd_ui}
+      --vae ${models}/z_image-vae-ae.safetensors --llm ${models}/Qwen3-4B-Instruct-2507-Q8_0.gguf
+      --steps 8 --cfg-scale 1.0 --diffusion-fa --listen-port ${PORT}
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /v1/models
+    aliases: []
+    ttl: 0
+    name: z-image-turbo
+    description: "Z-Image-Turbo Q8_0 -- images, ~4 min per 512x512 on this CPU. Images tab only."
+    metadata:
+      kind: image
+
+# The module's `concurrent = [ [ "coder" "instruct" "flux2-klein-9b" "embed" ] ]`:
+# those four may stay resident together; klein 4B and Z-Image are in no set
+# and so run alone, evicting everything else. Top-level `matrix:` is the
+# form the module writes and 224 reads (a backwards-compat alias of
+# routing.router.settings.matrix).
+matrix:
+  vars:
+    v0: coder
+    v1: embed
+    v2: flux2-klein-4b
+    v3: flux2-klein-9b
+    v4: instruct
+    v5: z-image-turbo
+  sets:
+    set0: "v0 & v4 & v3 & v1"

@@ -1,0 +1,134 @@
+# agent-hub as a flox environment (homelab ADR 0009, step 1).
+#
+# This file is the tenant: what runs behind :8100 on ac-box, spelled as
+# packages, variables and a command instead of Nix. modules/agent-hub.nix is
+# the NixOS module that runs there today; it keeps working untouched, and this
+# manifest reproduces the SAME serving setup the module composes on the box --
+# read from the live unit on 17 Sep 2026 (`systemctl cat agent-hub-llm`, and
+# the llama-swap JSON it points at): llama-swap 224 on 127.0.0.1:8100 in
+# front of six backends, the three llama models on ik_llama.cpp 3bb386e and
+# the three image models on stable-diffusion.cpp with AVX2/FMA/F16C on. The
+# model table is llama-swap.yaml at the repo root; every flag there is the
+# one the module emits, in the same order.
+#
+# What is NOT here, on purpose: the LAN address, the port's firewall rule,
+# the slice, AllowedCPUs/NUMAPolicy, User=, Restart= and the nginx landing
+# page and qdrant units. Those are host facts (hosts/ac-box/{tenants,
+# configuration}.nix) and stay in the closure's unit stub -- ADR 0009 says
+# the manifest has no vocabulary for them and invents none.
+schema-version = "1.14.0"
+
+
+## Install ------------------------------------------------------------
+## Three runtime packages and three for the scripts and CI.
+## ---------------------------------------------------------------------
+[install]
+# The engine. ikawrakow's fork, built from this repo's own nix/ik-llama-cpp.nix
+# with BLAS and curl off -- NOT the fork's flake default, which turns BLAS on
+# for a CPU host and hands the f32 matmuls to OpenBLAS, exactly what the iqk
+# kernels are there to replace. So the flake reference is this repo, not the
+# fork: the catalog has no ik_llama.cpp, and a flake descriptor is the one
+# way flox installs a custom derivation without `flox publish` (a [build]
+# entry cannot be installed into the same environment). The lock pins the
+# repo rev + narHash, so a change to nix/ik-llama-cpp.nix reaches this
+# environment only after it is on GitHub AND `flox upgrade ik-llama-cpp` has
+# re-locked -- two commits, in that order. The binary is built by the
+# repo's flake.lock nixpkgs (nixos-26.05), not the host's, which is the point
+# of ADR 0009 and also why the store path differs from the closure's:
+# same source, same options, a different stdenv rev.
+ik-llama-cpp.flake = "github:imkarrer/agent-hub#ik-llama-cpp"
+
+# The image backend. nixpkgs' stable-diffusion-cpp with the SIMD it forgets
+# (nix/stable-diffusion-cpp.nix says why: scalar matmuls, 570 s per image).
+# Same flake shape and the same two-commit rule as the engine.
+stable-diffusion-cpp.flake = "github:imkarrer/agent-hub#stable-diffusion-cpp"
+
+# The router. From the catalog, pinned to what the box runs; `flox show
+# llama-swap` lists 240 and 249 above it, and the top-level `matrix:` key
+# llama-swap.yaml uses is a backwards-compat field in 224 -- re-check it
+# before moving.
+llama-swap.pkg-path = "llama-swap"
+llama-swap.version = "224"
+
+# scripts/*.sh (smoke-test, wait-health, vectors-smoke) and scripts/ci_*.sh.
+curl.pkg-path = "curl"
+jq.pkg-path = "jq"
+shellcheck.pkg-path = "shellcheck"
+
+
+## Vars ---------------------------------------------------------------
+## Only what is the same on every host. A [vars] value overrides whatever
+## the caller exported (tested on 1.14.0: FOO=caller flox activate ->
+## FOO=from-vars), so anything a host must be able to set -- the model
+## directory, the thread count -- is defaulted in the hook below instead.
+## ---------------------------------------------------------------------
+[vars]
+# Empty, and that is the finding: every value this tenant has is one some
+# host must be able to override -- even the loopback backend port collides
+# with the NixOS unit on the WSL box -- so they all live in the hook.
+
+
+## Hook ---------------------------------------------------------------
+## Host facts with the box's values as defaults. `: "${X:=default}"` keeps
+## a value the caller exported (a unit's Environment=, a developer's
+## shell) and fills in the box's otherwise.
+## ---------------------------------------------------------------------
+[hook]
+on-activate = '''
+  # Where the GGUFs are. /srv/agent-hub/models on the box (the module's
+  # dataDir); a developer points this at a directory of their own.
+  : "${AGENT_HUB_MODELS:=/srv/agent-hub/models}"
+  # --threads / -t for every backend. 23 = the physical cores inside
+  # background.slice's fence on ac-box (hosts/ac-box/configuration.nix
+  # argues it); a laptop sets fewer. Never auto-detect: on the box that is
+  # 56 threads and the race servers starve.
+  : "${AGENT_HUB_THREADS:=23}"
+  # --ctx-size for the chat models. 32768 on the box; the embedding model
+  # has its own 8192 in llama-swap.yaml, as in the module.
+  : "${AGENT_HUB_CTX:=32768}"
+  # Where llama-swap listens. 127.0.0.1 because nginx owns the LAN side of
+  # :8100 on the box (the module's landingPage); a developer or a host
+  # without nginx puts the LAN address here.
+  : "${AGENT_HUB_LISTEN:=127.0.0.1:8100}"
+  # llama-swap's loopback backends start here. Not a LAN allocation, so not
+  # in homelab's port registry; chosen away from anything else on 127.0.0.1.
+  : "${AGENT_HUB_BACKEND_PORT:=18100}"
+  # The model table, and the directory holding sd-ui.html for the image
+  # backends. Both are files of this repo, not of the environment: a
+  # FloxHub generation carries the manifest and lock only, so wherever the
+  # environment runs from, the checkout has to be there too (or these two
+  # point elsewhere). Recorded as an ADR 0009 finding; not solved here.
+  : "${AGENT_HUB_SWAP_CONFIG:=$FLOX_ENV_PROJECT/llama-swap.yaml}"
+  : "${AGENT_HUB_ASSETS:=$FLOX_ENV_PROJECT/nix}"
+  export AGENT_HUB_MODELS AGENT_HUB_THREADS AGENT_HUB_CTX AGENT_HUB_LISTEN \
+         AGENT_HUB_BACKEND_PORT AGENT_HUB_SWAP_CONFIG AGENT_HUB_ASSETS
+'''
+
+
+## Services -- the developer's shell, not the production unit ---------
+##
+## ADR 0009 question 2, answered on WSL 17 Sep 2026 (homelab
+## docs/flox-findings.md section 2): `flox activate --start-services`
+## runs the services under process-compose behind a `flox_never_exit`
+## sentinel, so a service that dies is invisible to the activation -- it
+## neither exits nor changes its exit code -- and the no-command form
+## returns at once. systemd's Restart=, the slice's accounting and the
+## journal all need the real process as the unit's main PID. So:
+##
+##   production   ExecStart=flox activate -d <env> -- llama-swap \
+##                  -config "$AGENT_HUB_SWAP_CONFIG" -listen "$AGENT_HUB_LISTEN"
+##                (one unit per process; flox exec's into the command, and
+##                SIGTERM to the flox pid reaches it: exit 143, child gone)
+##   development  flox activate --start-services, the block below
+##
+## `flox activate -- llama-swap ...` is what this file is proven with.
+## ---------------------------------------------------------------------
+[services.llm]
+command = 'exec llama-swap -config "$AGENT_HUB_SWAP_CONFIG" -listen "$AGENT_HUB_LISTEN"'
+
+
+## Options ------------------------------------------------------------
+[options]
+# The flake packages exist for x86_64-linux only; without this line the
+# lock step asks the flake for aarch64-darwin and fails.
+systems = ["x86_64-linux"]
