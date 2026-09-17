@@ -1,24 +1,50 @@
 # GitHub push -> this file, on the ac-box agent (queue=self). Source checks
 # only: nothing here touches the box, and nothing here can -- this tree
-# reaches ac-box solely as a flake input of homelab.
+# reaches ac-box as a flake input of homelab today, and as a flox
+# environment once ADR 0009's deploy edge exists (homelab-158.3).
 #
-# The gate that matters for this tree is the COMPOSITION: does ac-box still
-# evaluate with this module at this commit? That cannot run here, because
-# the checkout is agent-hub and the host that composes it lives in homelab
-# (scripts/hub-gates.sh gates a module-only tree by --override-input from
-# the hub). It runs one hop later instead: homelab's bump-lock step moves
-# the input to this commit and runs `nix flake check -L` on the result
-# BEFORE pushing, so a commit that breaks ac-box never lands on homelab
-# main. What runs here is the cheap half -- the flake evaluates, the
-# scripts pass shellcheck -- so an obvious break is red in seconds on the
-# tree that made it, rather than red on homelab's build with this tree's
-# name buried in a lock diff.
+# Every step runs under the flox plugin, in the environment
+# .flox/env/manifest.toml declares -- the same environment a developer
+# activates and the box will run from, and the one homelab's
+# scripts/hub-gates.sh reproduces locally with flox pinned to the agent's
+# version. The tenant's own gate is scripts/ci_test.sh: llama-swap loads the
+# model table with the environment's binaries. The COMPOSITION gate -- does
+# ac-box still evaluate with modules/agent-hub.nix at this commit? -- cannot
+# run here, because the host that composes it lives in homelab; it runs one
+# hop later, in homelab's bump-lock step, before anything is pushed there.
+#
+# The first build after the manifest lands is slow: the two flake packages
+# (ik_llama.cpp, stable-diffusion.cpp) have no binary in the catalog, so
+# the agent's nix builds them from source on its four cores. The plugin's
+# post-command hook then pushes the environment's closure to the MinIO
+# cache (S3_CACHE_PUSH), so every later cold container substitutes instead.
 
 agents:
   queue: self
 
+env:
+  S3_CACHE_BUCKET: flox-binary-cache
+  S3_CACHE_ENDPOINT: http://minio:9000
+  S3_CACHE_REGION: us-east-1
+  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:pSpP6x540XtBh+IMvmW8XrRHJDtIi+b31uvvIA0PyR0= flox-binary-cache-2:ESa71iIsMeX6Wu7EBiXXZlJraWI0HF4xdOF/ivG4UTo="
+  S3_CACHE_PUSH: "true"
+
 steps:
-  - label: ":nix: flake evaluates, scripts lint"
+  - label: ":flox: llama-swap serves the model table"
+    key: test
+    command: bash scripts/ci_test.sh
+    plugins:
+      - imkarrer/flox#main:
+          command: bash scripts/ci_test.sh
+
+  - label: ":flox: scripts lint"
+    key: lint
+    command: bash scripts/ci_lint.sh
+    plugins:
+      - imkarrer/flox#main:
+          command: bash scripts/ci_lint.sh
+
+  - label: ":nix: flake evaluates"
     key: check
     # Not --no-build. nix/ik-llama-cpp.nix and nix/stable-diffusion-cpp.nix
     # import files out of their fetched sources (callPackage
@@ -28,9 +54,12 @@ steps:
     # --no-build turns the fetch into "path is not valid" (build 1, 15 Sep).
     # Without the flag nix fetches the two sources (once; they stay in the
     # agent's store) and builds nothing -- this flake has no `checks`.
-    command: |
-      nix --extra-experimental-features "nix-command flakes" flake check
-      nix --extra-experimental-features "nix-command flakes" run nixpkgs#shellcheck -- scripts/*.sh
+    # Under the plugin for uniformity; nix is the agent's, not the
+    # environment's.
+    command: nix --extra-experimental-features "nix-command flakes" flake check
+    plugins:
+      - imkarrer/flox#main:
+          command: nix --extra-experimental-features "nix-command flakes" flake check
 
   - wait: ~
 
@@ -42,6 +71,9 @@ steps:
   # about a quarter of an hour, with nobody in the loop. That is the chain
   # the operator asked for on 15 Sep 2026, and the reason this file did not
   # exist before then -- see homelab/docs/architecture.md Part III row 24.
+  # It stays until the box runs this tenant from the environment rather
+  # than from the module (homelab-158.2/.3); the manifest changes nothing
+  # about how the module reaches the box.
   - trigger: homelab
     label: ":arrow_up: bump homelab's lock"
     if: build.branch == "main"

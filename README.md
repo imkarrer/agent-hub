@@ -143,6 +143,28 @@ nix develop            # llama-server, curl, jq available
 scripts/serve.sh /path/to/model.gguf     # manual smoke test, no systemd
 ```
 
+**The same server as a flox environment** (homelab ADR 0009, step 1). `.flox/env/manifest.toml`
+installs what the box serves -- ik_llama.cpp and stable-diffusion.cpp from this repo's own flake
+outputs (the catalog has neither at these options), llama-swap 224 from the catalog -- and
+`llama-swap.yaml` is the six-model table `modules/agent-hub.nix` generates on ac-box, written by
+hand with the box's values as defaults. Every host fact is an environment variable the manifest's
+hook defaults and a caller may override:
+
+```bash
+AGENT_HUB_MODELS=$PWD/models AGENT_HUB_THREADS=8 AGENT_HUB_CTX=8192 \
+  AGENT_HUB_LISTEN=127.0.0.1:18900 AGENT_HUB_BACKEND_PORT=18910 \
+  flox activate -- llama-swap -config llama-swap.yaml -listen 127.0.0.1:18900
+```
+
+That is the production shape too (one unit, `ExecStart=flox activate -d <env> -- llama-swap ...`;
+the manifest's `[services]` block is the developer's `flox activate --start-services` and not
+what systemd runs -- the manifest says why). `scripts/ci_test.sh` is the gate CI runs on it:
+the environment's binaries resolve and llama-swap lists the six models. Proven on this WSL box
+17 Sep 2026 with `AGENT_HUB_MODELS` pointed at a directory holding the production `embed` GGUF
+(fetched with `DEST=$PWD/models scripts/fetch-model.sh embed`) and the local Qwen3-Coder-30B-A3B
+substituted for `coder`'s file: /v1/embeddings answered 1024 dims, /v1/chat/completions answered,
+and a request with `tools` came back as a parsed `tool_calls` -- the ik build with `--jinja`.
+
 To exercise the Phase 2 runner via the module (`services.agent-hub.enable`,
 `services.agent-hub.runner.enable`, `githubTokenFile`, `allowedRepos`, `llamaBaseUrl`
 set per host -- see `modules/agent-hub.nix` for the full option set):
