@@ -24,13 +24,55 @@ Nothing here should assume it's the only thing on ac-box -- firewall scoping and
 `agent-hub` system user follow the same LAN-interface-only pattern `arcade-hub.nix` uses,
 not global `allowedTCPPorts`.
 
+## What this repo is: the environment is the tenant, the module is the skeleton
+
+Since homelab ADR 0009 step 1 (18 Sep 2026) the model server on ac-box runs from this
+repo's **flox environment**, not from Nix:
+
+| | The environment (`.flox/env/manifest.toml`, `llama-swap.yaml`) | The module (`modules/agent-hub.nix`) |
+| --- | --- | --- |
+| What it is | The tenant: the packages (ik_llama.cpp, stable-diffusion.cpp, llama-swap 224), the six-model table, the command. A tenant author writes no Nix. | The unit's skeleton in the closure: the `agent-hub` user, `/srv/agent-hub` and `/var/lib/agent-hub`, the firewall rule, `agent-hub-llm.service`'s name / user / restart policy / ordering, nginx (the landing page) and qdrant. It generates nothing that runs a model. |
+| Who runs it | A developer: `flox activate`. The box: `agent-hub-llm.service`'s `ExecStart=flox activate -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml -listen 127.0.0.1:8100`, set by homelab's unit stub (`homelab.tenants.agent-hub.environment` in `hosts/ac-box/configuration.nix`). | homelab imports it as a flake input, as before, until `homelab-158.11` makes the stub the whole unit. Without the stub the unit exists and fails on start with a message naming the stub -- never a unit that quietly serves the old way. |
+| How a change reaches the box | Push to `main`; CI (`.buildkite/pipeline.yml`) proves the table loads and stages the sha; the box's `agent-hub-environment-pull` checks it out, warms it once online, restarts the unit. No closure switch. | A `flake.lock` bump in homelab (`bump-lock`), a closure switch at 03:30 -- only when a host-side thing changes: a directory, the landing page, qdrant. |
+| Host facts | Seven `AGENT_HUB_*` variables the unit's `Environment=` sets: models dir, threads, ctx, listen address, backend port, the table's path, the assets dir. The manifest's hook sets **none** of them under a unit; a missing one is llama-swap's refusal at load, `environment variable 'X' is not set`. | Declared as options (`llm.threads`, `llm.contextSize`, `llm.port`, `llm.landingPage`, `lanAddress`, `dataDir`, `llm.backendPort`) that homelab's stub reads from, so a value has one spelling. Table fields ac-box still sets (`engine`, `extraArgs`, `concurrent`, a model's `modelPath`...) are declared but read by nothing; `llama-swap.yaml` is the table. |
+
+### What a developer runs
+
+```bash
+flox activate                       # llama-server (ik fork), sd-server, llama-swap, curl, jq, shellcheck on PATH
+DEST=$PWD/models scripts/fetch-model.sh embed   # models/ is gitignored
+flox activate -- llama-swap -config llama-swap.yaml -listen 127.0.0.1:18900
+curl -s http://127.0.0.1:18900/v1/models | jq -r '.data[].id'
+```
+
+Outside a systemd unit the manifest's hook fills in **laptop** values -- 4 threads,
+8192 ctx, `$PWD/models`, `127.0.0.1:18900`, backends from 18910, the table and
+`nix/sd-ui.html` from the checkout -- chosen so a small model runs beside a NixOS unit
+on the same machine, and so that none of them is the box's (23 threads on a laptop was
+the earlier mistake; the box's values live in `hosts/ac-box/configuration.nix` and
+arrive by the stub, never by default). Export any `AGENT_HUB_*` to override.
+`flox activate --start-services` runs the same command under process-compose for an
+interactive session; it is the developer's shape, not the unit's (the manifest says
+why). `scripts/ci_test.sh` is the gate CI runs: the binaries resolve inside the
+environment and llama-swap lists the six models; `bash
+/path/to/homelab/scripts/hub-gates.sh agent-hub` runs it locally with flox pinned to
+the box's version.
+
+### What the box runs
+
+The same environment at a sha, checked out to `/var/lib/agent-hub/env` by the pull
+unit, activated by the stub with the box's seven values, in `background.slice` with the
+cpuset and NUMA policy the host sets on the unit. `nix/index.html` (the landing page
+nginx serves at `http://192.168.1.50:8100/`) and qdrant on `:6333` still come from the
+module. `hub-status` in homelab prints `agent-hub env: staged <sha> / applied <sha>
+(run <hash>)` beside the closure's rev pair.
+
 ## Phases
 
-**Phase 1 (this checkout right now): model server only.**
-[`modules/agent-hub.nix`](modules/agent-hub.nix) defines `services.agent-hub.llm`, a
-`llama-server` (llama.cpp) systemd service exposing an OpenAI-compatible API, LAN-bound,
-no code execution and no repo access. Goal: prove a coding-capable model runs and answers
-at an acceptable context size before adding anything that can act on a repo.
+**Phase 1: model server.** Served as above -- LAN-bound, no code execution and no repo
+access. The goal was to prove a coding-capable model runs and answers at an acceptable
+context size before adding anything that can act on a repo; it does (the numbers are
+below).
 
 **Phase 2 (2a and 2b proven out on this dev box; 2c/ac-box not started): the autonomous
 runner.**
@@ -136,34 +178,29 @@ Not done yet: `sops-nix` credential storage (`githubTokenFile` currently points 
 plain file, which is fine for this box's scratch-repo PAT but not for a real
 deployment) and any timer/webhook trigger (still manually invoked).
 
+Where the runner sits in ADR 0009's terms: it is a **Docker image** (`nix/runner-image.nix`,
+`dockerTools.buildImage`) plus a host-side wrapper and iptables rules from the module, with
+no systemd unit -- so it is not a second stub on the model server's environment. Its kind
+is the ADR's step 4, `flox containerize` (as ac-host's bot and sidecars, `homelab-ybm`):
+the image from a manifest of its own (aider, git, gh, python3 are all catalog packages),
+the wrapper and the `DOCKER-USER` allowlist staying host-side. Not started.
+
 ## Using this repo
 
-```bash
-nix develop            # llama-server, curl, jq available
-scripts/serve.sh /path/to/model.gguf     # manual smoke test, no systemd
-```
+The environment is the way in ("What a developer runs", above). `nix develop` still
+exists for the flake's own outputs -- nixpkgs' `llama-server`, curl, jq -- and
+`scripts/serve.sh /path/to/model.gguf` runs one bare llama-server without llama-swap or
+systemd; neither is what the box runs.
 
-**The same server as a flox environment** (homelab ADR 0009, step 1). `.flox/env/manifest.toml`
-installs what the box serves -- ik_llama.cpp and stable-diffusion.cpp from this repo's own flake
-outputs (the catalog has neither at these options), llama-swap 224 from the catalog -- and
-`llama-swap.yaml` is the six-model table `modules/agent-hub.nix` generates on ac-box, written by
-hand with the box's values as defaults. Every host fact is an environment variable the manifest's
-hook defaults and a caller may override:
-
-```bash
-AGENT_HUB_MODELS=$PWD/models AGENT_HUB_THREADS=8 AGENT_HUB_CTX=8192 \
-  AGENT_HUB_LISTEN=127.0.0.1:18900 AGENT_HUB_BACKEND_PORT=18910 \
-  flox activate -- llama-swap -config llama-swap.yaml -listen 127.0.0.1:18900
-```
-
-That is the production shape too (one unit, `ExecStart=flox activate -d <env> -- llama-swap ...`;
-the manifest's `[services]` block is the developer's `flox activate --start-services` and not
-what systemd runs -- the manifest says why). `scripts/ci_test.sh` is the gate CI runs on it:
-the environment's binaries resolve and llama-swap lists the six models. Proven on this WSL box
-17 Sep 2026 with `AGENT_HUB_MODELS` pointed at a directory holding the production `embed` GGUF
-(fetched with `DEST=$PWD/models scripts/fetch-model.sh embed`) and the local Qwen3-Coder-30B-A3B
-substituted for `coder`'s file: /v1/embeddings answered 1024 dims, /v1/chat/completions answered,
-and a request with `tools` came back as a parsed `tool_calls` -- the ik build with `--jinja`.
+The environment was proven on this WSL box 17 Sep 2026 with `AGENT_HUB_MODELS` pointed at
+a directory holding the production `embed` GGUF (fetched with `DEST=$PWD/models
+scripts/fetch-model.sh embed`) and the local Qwen3-Coder-30B-A3B substituted for `coder`'s
+file: /v1/embeddings answered 1024 dims, /v1/chat/completions answered, and a request with
+`tools` came back as a parsed `tool_calls` -- the ik build with `--jinja`. ik_llama.cpp and
+stable-diffusion.cpp are installed from this repo's own flake outputs (the catalog has
+neither at these options), so a change to `nix/ik-llama-cpp.nix` or
+`nix/stable-diffusion-cpp.nix` reaches the environment only after it is on GitHub *and*
+`flox upgrade` has re-locked -- two commits, in that order.
 
 To exercise the Phase 2 runner via the module (`services.agent-hub.enable`,
 `services.agent-hub.runner.enable`, `githubTokenFile`, `allowedRepos`, `llamaBaseUrl`
@@ -197,24 +234,32 @@ is the 14 Sep 2026 sweep that took the deployed server from 17 to 140 tok/s pref
 (`services.agent-hub.llm.engine = "ik-llama-cpp"`). `scripts/bench/` is the harness; re-run it
 before trusting any number in this README or in homelab's routing skill against a new build.
 
-**Several models, one port.** `services.agent-hub.llm.models` puts llama-swap on the port with
-one backend per entry -- ac-box serves `coder` (Qwen3-Coder-Next), `instruct` (Qwen3-Next
-Instruct, with `claude-*` aliases so inquire-platform's Anthropic SDK lands on it unchanged),
-three image models (stable-diffusion.cpp: `z-image-turbo`, `flux2-klein-4b`, `flux2-klein-9b`)
-and `embed` (Qwen3-Embedding-0.6B, `kind = "embedding"`, `/v1/embeddings` only). A model runs
-alone unless `concurrent` lists it in a set that may stay resident together; a swap is 20-60 s.
-`/` on that port is the front page (`landingPage`), `/upstream/<name>/` each backend's own UI.
-`scripts/fetch-model.sh` on the box fetches every file those entries name. The single-model
-unit (`modelPath`) is unchanged; the WSL2 box has since moved to `models` too, two entries,
-nothing `concurrent` (30 GB holds one of them at a time).
+**Several models, one port.** `llama-swap.yaml` puts llama-swap on the port with one backend
+per entry -- ac-box serves `coder` (Qwen3-Coder-Next), `instruct` (Qwen3-Next Instruct, with
+`claude-*` aliases so inquire-platform's Anthropic SDK lands on it unchanged), three image
+models (stable-diffusion.cpp: `z-image-turbo`, `flux2-klein-4b`, `flux2-klein-9b`) and `embed`
+(Qwen3-Embedding-0.6B, `/v1/embeddings` only). A model runs alone unless the table's `matrix`
+lists it in a set that may stay resident together; a swap is 20-60 s. `/` on that port is the
+front page (the module's `landingPage`, nginx, listing the models from
+`services.agent-hub.llm.models`' `kind` and `description` -- the names there must match the
+table's), `/upstream/<name>/` each backend's own UI. `scripts/fetch-model.sh` on the box
+fetches every file the table names.
+
+The WSL2 dev box is the one host that still imports this module **by path** from
+`~/src/agent-hub` (its `/etc/nixos/configuration.nix`) and served three models -- mainline
+b11007 with CUDA, not the fork -- from the module's generated table. That table is gone,
+and that box has no homelab stub, so its next `nixos-rebuild switch` gives it the placeholder
+ExecStart: it needs its own stub (a unit whose `ExecStart=flox activate -d ~/src/agent-hub --
+llama-swap ...` with its own `AGENT_HUB_*`; its GPU table is not `llama-swap.yaml`) or an
+import pinned before this change. Deliberately not decided here.
 
 **Consuming it from a coding agent (opencode).** The port is a plain OpenAI-compatible
 `/v1`; the `model` in a request is an entry name from `models` (`coder`, `instruct`), which
 `GET /v1/models` lists -- not the GGUF's name. Three things a client cannot fix on its side,
 all found 16 Sep 2026 pointing opencode at both boxes:
 
-- The backend must run with `--jinja` (in `llm.extraArgs`), or every request carrying a
-  `tools` array is answered `500 "tools param requires --jinja flag"`.
+- The backend must run with `--jinja` (in `llama-swap.yaml`'s `llama_extra` macro), or every
+  request carrying a `tools` array is answered `500 "tools param requires --jinja flag"`.
 - The model has to emit the template's tool-call format. Qwen2.5-Coder-14B-Instruct answers
   a tools request with a ```` ```json ```` fence instead of `<tool_call>` (deterministic at
   temperature 0, both engines, with and without flash-attn), so it drives aider but not
@@ -255,47 +300,32 @@ into it yet. `scripts/vectors-smoke.sh` embeds three sentences, upserts them, se
 fourth and checks the nearest hit, then drops the collection -- the proof the pair works.
 
 
-To deploy the module on ac-box, import `nixosModules.agent-hub` from this flake the same
-way `ac-host` imports a copy of `arcade-hub.nix` today, and set
-`services.agent-hub.llm.modelPath` to wherever the model lands under
-`services.agent-hub.dataDir`.
+**Two pins, two owners.** The *module* is composed into ac-box's closure by `homelab`,
+which owns `nixpkgs` for the whole closure and sets
+`inputs.agent-hub.inputs.nixpkgs.follows = "nixpkgs"`; this flake's own
+`inputs.nixpkgs.url` (`nixos-26.05`) governs only standalone use (`nix build`, `nix flake
+check`, `nix develop`) and never reaches the built closure. The *environment* is pinned by
+`.flox/env/manifest.lock`: the fork and stable-diffusion.cpp at this repo's own rev (so
+their nixpkgs is this flake's, not the host's -- the point of ADR 0009), llama-swap 224
+from the catalog. The flag audit that used to live here ("every flag this module passes
+exists in b9190") is now `scripts/ci_test.sh`'s: llama-swap loads the table with the
+environment's binaries on every push, and a flag the fork does not know fails there.
 
-**nixpkgs: the platform layer owns it, this flake must follow.** ac-box runs
-`nixos-26.05`, and `homelab` (the platform repo that owns the host, tenants included) is
-where `nixpkgs` gets pinned for the whole closure -- tenant flakes are not supposed to
-drag in their own copy. This flake's own `inputs.nixpkgs.url` points at
-`github:NixOS/nixpkgs/nixos-26.05` so standalone use of this repo (`nix build`,
-`nix flake check`, `nix develop`, all run in WSL2 outside `homelab`) matches the deploy
-target, but that pin is *not* what actually gets used once this is deployed. Whatever
-imports `nixosModules.agent-hub` as a tenant input (`homelab`, on ac-box) must set:
+**Port note:** `services.agent-hub.llm.port` defaults to `8100`, and homelab's stub builds
+`AGENT_HUB_LISTEN` from it. That default is a shared-host allocation, not a free choice --
+ac-box's Assetto Corsa tenant reserves the contiguous HTTP block `8081`-`8096` (8081 + 16
+lobby slots), and `8100` sits outside every range reserved on that box today. It is not
+derived from any port registry here; if `homelab`'s tenant port registry ever claims `8100`
+for something else, this default has to move again, not be assumed still safe. The
+backends' loopback ports (`llm.backendPort`, 18100 up) are not a LAN allocation and not
+in the registry.
 
-```nix
-inputs.agent-hub.inputs.nixpkgs.follows = "nixpkgs";
-```
-
-so the host's single `nixpkgs` evaluation is authoritative and this repo's own pin never
-reaches the built closure. Every `llama-server` flag this module passes or documents in
-`extraArgs` (`--flash-attn on`, plus `--threads`, `--ctx-size`, `--host`, `--port`) has
-been checked against `nixos-26.05`'s `llama-cpp` package (version `9190`, matching the
-`homelab` README's own note) via `llama-server --help` on that exact build -- all five
-exist and behave as documented there. If the pinned `nixos-26.05` revision (or whatever
-it's superseded by) ever moves, re-run that check before trusting this module's flags
-against the new build; it does not re-verify itself.
-
-**Port note:** `services.agent-hub.llm.port` defaults to `8100`. That default is a
-shared-host allocation, not a free choice -- ac-box's Assetto Corsa tenant reserves the
-contiguous HTTP block `8081`-`8096` (8081 + 16 lobby slots), and `8100` sits outside
-every range reserved on that box today. It is not derived from any port registry here;
-if `homelab`'s tenant port registry ever claims `8100` for something else, this default
-has to move again, not be assumed still safe.
-
-**CPU note:** `services.agent-hub.llm.threads` defaults to `4`, not `0`. `0` (like
-llama-server's own default of `-1`) means "auto-detect and use every core llama.cpp can
-see" -- on ac-box that's all 56 threads, which would starve the live race servers
-sharing the box. `4` is a safe, non-grabby placeholder for dev use, not a capacity plan:
-on ac-box, `homelab`'s tier system is what actually owns CPU allocation (shares of
-`homelab.host.capacity.cpuThreads`, applied as `CPUWeight`/`AllowedCPUs` on this
-tenant's slice, per that repo's "tiers are shares, not absolute indices" rule). Whoever
-deploys this module must set `threads` to match the CPU allowance that slice actually
-grants agent-hub, not the host's total core count and not this default without
-checking.
+**CPU note:** `services.agent-hub.llm.threads` defaults to `4`, not `0`, and homelab's stub
+passes it as `AGENT_HUB_THREADS`. `0` (like llama-server's own default of `-1`) means
+"auto-detect and use every core llama.cpp can see" -- on ac-box that's all 56 threads, which
+would starve the live race servers sharing the box. `4` is a safe, non-grabby placeholder
+(the manifest's hook uses the same number for a developer's shell), not a capacity plan: on
+ac-box, `homelab`'s tier system is what actually owns CPU allocation (shares of
+`homelab.host.capacity.cpuThreads`, applied as `CPUWeight`/`AllowedCPUs` on this tenant's
+slice, per that repo's "tiers are shares, not absolute indices" rule), and
+`hosts/ac-box/configuration.nix` sets `threads = 23` to match the fence.
