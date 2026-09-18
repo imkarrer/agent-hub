@@ -1,15 +1,16 @@
 # agent-hub as a flox environment (homelab ADR 0009, step 1).
 #
 # This file is the tenant: what runs behind :8100 on ac-box, spelled as
-# packages, variables and a command instead of Nix. modules/agent-hub.nix is
-# the NixOS module that runs there today; it keeps working untouched, and this
-# manifest reproduces the SAME serving setup the module composes on the box --
-# read from the live unit on 17 Sep 2026 (`systemctl cat agent-hub-llm`, and
-# the llama-swap JSON it points at): llama-swap 224 on 127.0.0.1:8100 in
-# front of six backends, the three llama models on ik_llama.cpp 3bb386e and
-# the three image models on stable-diffusion.cpp with AVX2/FMA/F16C on. The
-# model table is llama-swap.yaml at the repo root; every flag there is the
-# one the module emits, in the same order.
+# packages, variables and a command instead of Nix. Since 18 Sep 2026 it IS
+# what the box runs -- agent-hub-llm.service's ExecStart is `flox activate
+# -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml`,
+# set by homelab's unit stub; modules/agent-hub.nix keeps the unit's
+# skeleton (name, user, restart policy, the landing page, qdrant) and
+# generates nothing that runs. The serving setup was read from the live
+# unit on 17 Sep 2026: llama-swap 224 on 127.0.0.1:8100 in front of six
+# backends, the three llama models on ik_llama.cpp 3bb386e and the three
+# image models on stable-diffusion.cpp with AVX2/FMA/F16C on. The model
+# table is llama-swap.yaml at the repo root.
 #
 # What is NOT here, on purpose: the LAN address, the port's firewall rule,
 # the slice, AllowedCPUs/NUMAPolicy, User=, Restart= and the nginx landing
@@ -69,39 +70,66 @@ shellcheck.pkg-path = "shellcheck"
 
 
 ## Hook ---------------------------------------------------------------
-## Host facts with the box's values as defaults. `: "${X:=default}"` keeps
-## a value the caller exported (a unit's Environment=, a developer's
-## shell) and fills in the box's otherwise.
+## The seven AGENT_HUB_* variables llama-swap.yaml and [services] read.
+## Under a systemd unit the hook sets NONE of them; in a developer's shell
+## it fills in values for a laptop. `: "${X:=v}"` keeps what the caller
+## exported.
+##
+## Why the split (homelab-158.1 review, finding 1): this hook used to
+## default every variable to the BOX's value -- 23 threads, /srv/agent-hub
+## /models, :8100 -- so the stub in hosts/ac-box/configuration.nix could
+## have omitted any of the seven and the unit would still have come up
+## right, by coincidence, with the omission invisible; and the same 23
+## threads were wrong on every other machine. Now the unit's Environment=
+## is the whole set of host facts, and a missing one is llama-swap's own
+## refusal at load, exit 1, the variable named in the journal:
+##
+##   ERROR failed to load config path=... error="environment variable
+##   'AGENT_HUB_THREADS' is not set"
+##
+## "Under a unit" is INVOCATION_ID, which systemd sets in every service
+## process it starts (systemd.exec(5)); the live llama-swap on ac-box
+## carries it (18 Sep 2026, /proc/<MainPID>/environ). The pull unit's warm
+## (`flox activate -d <dir> -- true`) is under a unit too, so it no longer
+## runs this hook with a tree's defaults (homelab docs/flox-findings.md 1).
+## CI's flox plugin runs in a container with no INVOCATION_ID; an agent
+## that itself runs as a unit (homelab-158.6) must not leak it into jobs,
+## or scripts/ci_test.sh will be told to set the seven itself -- loudly.
 ## ---------------------------------------------------------------------
 [hook]
 on-activate = '''
-  # Where the GGUFs are. /srv/agent-hub/models on the box (the module's
-  # dataDir); a developer points this at a directory of their own.
-  : "${AGENT_HUB_MODELS:=/srv/agent-hub/models}"
-  # --threads / -t for every backend. 23 = the physical cores inside
-  # background.slice's fence on ac-box (hosts/ac-box/configuration.nix
-  # argues it); a laptop sets fewer. Never auto-detect: on the box that is
-  # 56 threads and the race servers starve.
-  : "${AGENT_HUB_THREADS:=23}"
-  # --ctx-size for the chat models. 32768 on the box; the embedding model
-  # has its own 8192 in llama-swap.yaml, as in the module.
-  : "${AGENT_HUB_CTX:=32768}"
-  # Where llama-swap listens. 127.0.0.1 because nginx owns the LAN side of
-  # :8100 on the box (the module's landingPage); a developer or a host
-  # without nginx puts the LAN address here.
-  : "${AGENT_HUB_LISTEN:=127.0.0.1:8100}"
-  # llama-swap's loopback backends start here. Not a LAN allocation, so not
-  # in homelab's port registry; chosen away from anything else on 127.0.0.1.
-  : "${AGENT_HUB_BACKEND_PORT:=18100}"
-  # The model table, and the directory holding sd-ui.html for the image
-  # backends. Both are files of this repo, not of the environment: a
-  # FloxHub generation carries the manifest and lock only, so wherever the
-  # environment runs from, the checkout has to be there too (or these two
-  # point elsewhere). Recorded as an ADR 0009 finding; not solved here.
-  : "${AGENT_HUB_SWAP_CONFIG:=$FLOX_ENV_PROJECT/llama-swap.yaml}"
-  : "${AGENT_HUB_ASSETS:=$FLOX_ENV_PROJECT/nix}"
-  export AGENT_HUB_MODELS AGENT_HUB_THREADS AGENT_HUB_CTX AGENT_HUB_LISTEN \
-         AGENT_HUB_BACKEND_PORT AGENT_HUB_SWAP_CONFIG AGENT_HUB_ASSETS
+  if [ -z "${INVOCATION_ID:-}" ]; then
+    # A developer's shell, on a machine that is not the box. Every value
+    # here is deliberately NOT ac-box's (those are hosts/ac-box/
+    # configuration.nix's, passed by the stub): enough to load the table
+    # and run one small model beside a NixOS unit on the same machine.
+    #
+    # The GGUFs: models/ in this checkout, gitignored;
+    # `DEST=$PWD/models scripts/fetch-model.sh <name>` fills it.
+    : "${AGENT_HUB_MODELS:=$FLOX_ENV_PROJECT/models}"
+    # --threads / -t for every backend. Four: a laptop's share, never
+    # auto-detect (on the box that is 56 threads and the race servers
+    # starve; the box says 23).
+    : "${AGENT_HUB_THREADS:=4}"
+    # --ctx-size for the chat models (the box says 32768; the embedding
+    # model has its own 8192 in llama-swap.yaml regardless).
+    : "${AGENT_HUB_CTX:=8192}"
+    # Where llama-swap listens: loopback, and not :8100, which the NixOS
+    # unit on the WSL box holds (the box says 127.0.0.1:8100, nginx in
+    # front). scripts/ci_test.sh sets its own 18999 to sit beside this.
+    : "${AGENT_HUB_LISTEN:=127.0.0.1:18900}"
+    # llama-swap's loopback backends start here, off the box's 18100 for
+    # the same reason.
+    : "${AGENT_HUB_BACKEND_PORT:=18910}"
+    # The model table, and the directory holding sd-ui.html for the image
+    # backends: two files of this repo, at the checkout flox activated
+    # (FLOX_ENV_PROJECT). A FloxHub generation carries the manifest and
+    # lock only, which is why the box runs the tree at a sha (ADR 0009).
+    : "${AGENT_HUB_SWAP_CONFIG:=$FLOX_ENV_PROJECT/llama-swap.yaml}"
+    : "${AGENT_HUB_ASSETS:=$FLOX_ENV_PROJECT/nix}"
+    export AGENT_HUB_MODELS AGENT_HUB_THREADS AGENT_HUB_CTX AGENT_HUB_LISTEN \
+           AGENT_HUB_BACKEND_PORT AGENT_HUB_SWAP_CONFIG AGENT_HUB_ASSETS
+  fi
 '''
 
 

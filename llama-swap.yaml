@@ -1,16 +1,22 @@
-# The model table behind :8100 -- what modules/agent-hub.nix generates from
-# `services.agent-hub.llm.models` on ac-box, written by hand for the flox
-# environment (.flox/env/manifest.toml). Read from the live config on 17 Sep
-# 2026 (/nix/store/...-agent-hub-llama-swap.json on the box): six models,
-# same names, same flags in the same order, same concurrency set. The only
-# differences are the `${env.*}` macros where the module had store paths
-# and host constants, and YAML where it wrote JSON.
+# The model table behind :8100 -- THE table, since 18 Sep 2026: the unit
+# on ac-box runs `llama-swap -config <checkout>/llama-swap.yaml` from the
+# flox environment (.flox/env/manifest.toml), and modules/agent-hub.nix no
+# longer generates one. Written by hand from the JSON the module used to
+# generate, read off the box on 17 Sep 2026: six models, same names, same
+# flags in the same order, same concurrency set; `${env.*}` macros where
+# the module had store paths and host constants. hosts/ac-box/
+# configuration.nix still carries the per-model reasoning (which quant,
+# why these flags) beside values nothing reads any more; when it moves,
+# it moves here.
 #
 # Run it with the environment's binaries on PATH, i.e. from `flox activate`:
-#   flox activate -- llama-swap -config llama-swap.yaml -listen 127.0.0.1:8100
-# Every `${env.X}` here is set by the manifest's hook (defaults = the box) or
-# by flox itself (FLOX_ENV); llama-swap refuses to load if one is missing,
-# which is the check you want.
+#   flox activate -- llama-swap -config llama-swap.yaml -listen 127.0.0.1:18900
+# Every `${env.AGENT_HUB_*}` here is a host fact: on the box the unit's
+# Environment= (homelab's stub) sets all of them and the manifest's hook sets
+# none; in a developer's shell the hook fills in laptop values (the manifest
+# says which). FLOX_ENV is flox's own. llama-swap refuses to load if one is
+# missing -- `environment variable 'X' is not set`, exit 1 -- which is the
+# check you want.
 #
 # `${PORT}` is llama-swap's own macro, the loopback port it assigns a
 # backend; it must stay literal.
