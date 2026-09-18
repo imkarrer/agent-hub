@@ -17,7 +17,7 @@
 # page and qdrant units. Those are host facts (hosts/ac-box/{tenants,
 # configuration}.nix) and stay in the closure's unit stub -- ADR 0009 says
 # the manifest has no vocabulary for them and invents none.
-schema-version = "1.14.0"
+schema-version = "1.16.0"
 
 
 ## Install ------------------------------------------------------------
