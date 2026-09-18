@@ -51,10 +51,22 @@ models:
   # Qwen3-Coder-Next, 80B total / 3B active MoE, Q8_0, four shards; shard 1
   # is named and llama.cpp finds the rest. --cache-ram 12288: the
   # server-side prompt cache sized for ~five 32k agent conversations.
+  #
+  # Two slots (--parallel 2), each ${ctx} = 32768 of context: --ctx-size is
+  # the TOTAL this build splits across slots, and a llama-swap macro cannot
+  # multiply, so the total is literal -- change both when ${ctx} changes.
+  # One slot was the bottleneck on 18 Sep 2026 (homelab-7bu): with a
+  # second agent session on this backend, 66 of 174 completions in one hour
+  # queued behind another request and a four-minute bead-loop review took
+  # 40. Decode on this MoE is memory-bandwidth bound, so batching two
+  # sequences reads the weights once for both; prefill (compute bound)
+  # shares the 23 threads, no worse than the serial wait it replaces. KV for
+  # a second 32k slot is small: Qwen3-Next's hybrid attention keeps few
+  # full-attention layers. Not the instruct backend: one client at a time.
   coder:
     cmd: >
       ${llama_server} --model ${models}/Qwen3-Coder-Next-Q8_0-00001-of-00004.gguf
-      --host 127.0.0.1 --ctx-size ${ctx} --threads ${threads}
+      --host 127.0.0.1 --parallel 2 --ctx-size 65536 --threads ${threads}
       ${llama_extra} --cache-ram 12288 --port ${PORT}
     proxy: "http://127.0.0.1:${PORT}"
     checkEndpoint: /health
