@@ -110,3 +110,27 @@ steps:
       env:
         HOMELAB_BUMP_INPUT: agent-hub
         HOMELAB_BUMP_REV: "${BUILDKITE_COMMIT}"
+
+  # Second edge, ADR 0009 step 1c (homelab-158.3): stage THIS sha as the
+  # tenant's environment on the box. homelab's pipeline routes a build
+  # carrying HOMELAB_STAGE_ENVIRONMENT to scripts/hub-queue-environment.sh,
+  # which writes /var/lib/homelab/pending-environment-agent-hub.json; the
+  # box's agent-hub-environment-pull unit checks the sha out under
+  # /var/lib/agent-hub/env, substitutes every path the lock names (never
+  # compiles), activates once, records it, and restarts agent-hub-llm.service
+  # once the stub is enabled in homelab. While the stub is off this stages
+  # and warms only. Same async/soft_fail reasoning as the bump above.
+  # HOMELAB_STAGE_BRANCH is required: without it the queue script sees
+  # homelab's own branch and the only-main guard passes for the wrong build.
+  - trigger: homelab
+    label: ":inbox_tray: stage this sha as agent-hub's environment on the box"
+    if: build.branch == "main"
+    async: true
+    soft_fail: true
+    build:
+      message: "agent-hub ${BUILDKITE_COMMIT} went green: stage the environment"
+      env:
+        HOMELAB_STAGE_ENVIRONMENT: agent-hub
+        HOMELAB_STAGE_REV: "${BUILDKITE_COMMIT}"
+        HOMELAB_STAGE_BRANCH: "${BUILDKITE_BRANCH}"
+        HOMELAB_STAGE_BUILD: "${BUILDKITE_BUILD_URL}"
