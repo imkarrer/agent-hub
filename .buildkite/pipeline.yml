@@ -77,32 +77,10 @@ steps:
 
   - wait: ~
 
-  # Tell homelab this tree moved. Its bump-lock step (scripts/hub-bump-lock.sh
-  # there) bumps the `agent-hub` input, runs homelab's gates on the result,
-  # and pushes; that push is an ordinary homelab build, whose queue-closure
-  # stages the closure, which homelab-deploy applies within minutes unless
-  # someone is racing (ADR 0008). So: a green push here is a switched box in
-  # about a quarter of an hour, with nobody in the loop. That is the chain
-  # the operator asked for on 15 Sep 2026, and the reason this file did not
-  # exist before then -- see homelab/docs/architecture.md Part III row 24.
-  # It stays until the box runs this tenant from the environment rather
-  # than from the module (homelab-158.2/.3); the manifest changes nothing
-  # about how the module reaches the box.
-  - trigger: homelab
-    label: ":arrow_up: bump homelab's lock"
-    if: build.branch == "main"
-    async: true
-    # A trigger that cannot fire (slug renamed, permission missing) must not
-    # redden THIS build. The bump simply does not happen, and hub-status
-    # shows the lock behind its tip -- which is the only signal there is, so
-    # read it.
-    soft_fail: true
-    build:
-      message: "agent-hub ${BUILDKITE_COMMIT} went green"
-      env:
-        HOMELAB_BUMP_INPUT: agent-hub
-        HOMELAB_BUMP_REV: "${BUILDKITE_COMMIT}"
-
+  # No bump-lock trigger any more: since homelab d7d4f58 (18 Sep 2026,
+  # homelab-158.11) this tree is not a flake input of the closure. The box
+  # takes it only through the environment edge below; homelab's bump-lock
+  # step would skip it by name anyway.
   # Second edge, ADR 0009 step 1c (homelab-158.3): stage THIS sha as the
   # tenant's environment on the box. homelab's pipeline routes a build
   # carrying HOMELAB_STAGE_ENVIRONMENT to scripts/hub-queue-environment.sh,
