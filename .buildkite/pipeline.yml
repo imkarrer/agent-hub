@@ -23,26 +23,18 @@
 # the agent's container sees nproc=4 (batch's two physical cores plus SMT
 # siblings), ninja ran -j4 on the fork's iqk template units, and four of
 # those exceed batch.slice's 12.5 GiB ceiling. `cores = 2` is the agent's
-# setting to make (ac-host compose/docker-compose.buildkite.yml carries it),
-# but a compose change reaches the running agent only at its next recreate,
-# so this file repeats the agent's whole NIX_CONFIG below with cores added
-# -- repeats, because a job-level NIX_CONFIG REPLACES the agent's variable
-# rather than merging with it, and dropping sandbox-fallback = false would
-# be worse than the OOM. Remove the env block once hub-status shows the
-# agent recreated past that compose commit. Steps also run in sequence
-# (depends_on) so one activation builds the environment and the other two
-# find it, instead of three evaluators contending for the same ceiling.
+# setting (ac-host compose/docker-compose.buildkite.yml, since 7d4191f; on
+# the running agent since its 18 Sep recreate). This file carried a copy of
+# the agent's NIX_CONFIG for one day while the compose change travelled;
+# gone now, because a job-level NIX_CONFIG replaces the agent's rather than
+# merging with it. Steps run in sequence (depends_on) so one activation
+# builds the environment and the other two find it, instead of three
+# evaluators contending for the same ceiling.
 
 agents:
   queue: self
 
 env:
-  # INTERIM -- header, last paragraph. Mirrors the agent's NIX_CONFIG plus
-  # cores = 2; delete when the agent carries it.
-  NIX_CONFIG: |
-    sandbox = true
-    sandbox-fallback = false
-    cores = 2
   S3_CACHE_BUCKET: flox-binary-cache
   S3_CACHE_ENDPOINT: http://minio:9000
   S3_CACHE_REGION: us-east-1
