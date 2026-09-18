@@ -41,36 +41,39 @@
     {
       "attr_path": "curl",
       "broken": false,
-      "derivation": "/nix/store/zqkrwwbym85n95fd4xl1x2x2sg3iyihc-curl-8.20.0.drv",
+      "derivation": "/nix/store/y0w0b4xy7vp4v777yh6pnkjlf5qp6319-curl-8.21.0.drv",
       "description": "Command line tool for transferring files with URL syntax",
       "install_id": "curl",
       "license": "curl",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
-      "name": "curl-8.20.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "name": "curl-8.21.0",
       "pname": "curl",
-      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
-      "rev_count": 1027867,
-      "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T04:40:24.689079Z",
+      "rev": "241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "rev_count": 1037713,
+      "rev_date": "2026-07-19T21:52:44Z",
+      "scrape_date": "2026-07-21T05:58:39.303543Z",
       "stabilities": [
+        "unstable",
         "staging",
-        "unstable"
+        "stable"
       ],
       "unfree": false,
-      "version": "8.20.0",
+      "version": "8.21.0",
       "outputs_to_install": [
         "bin",
         "bin",
+        "bin",
+        "man",
         "man",
         "man"
       ],
       "outputs": {
-        "bin": "/nix/store/w36yf3psz1zhgabw03hlag8bw0rdfsav-curl-8.20.0-bin",
-        "debug": "/nix/store/6bd4xhi8pgwng74338wc82bqw5ncs7xs-curl-8.20.0-debug",
-        "dev": "/nix/store/mgf0n27lnygx9f2n4riyw34g2lqm9rhy-curl-8.20.0-dev",
-        "devdoc": "/nix/store/5dxy29mjl0wjakfignhm1q2h04qnl5j1-curl-8.20.0-devdoc",
-        "man": "/nix/store/df7hisry2sni9b7dx84df75m3mr15idz-curl-8.20.0-man",
-        "out": "/nix/store/5ji5924yd02lmva6bmp7k65gfs2696z7-curl-8.20.0"
+        "bin": "/nix/store/p4j27d0562xma7y3hpls2lm6v20sbfcv-curl-8.21.0-bin",
+        "debug": "/nix/store/wpy53cxgn1g9nvsz489in3cjyxjqphgc-curl-8.21.0-debug",
+        "dev": "/nix/store/sspqmllb6bwpysc3mvid7lds8j8hy35k-curl-8.21.0-dev",
+        "devdoc": "/nix/store/ylghxlac5whkagpcwmsd1wxskksg3dj7-curl-8.21.0-devdoc",
+        "man": "/nix/store/mxyw3rz7qc00485ajsxsi7daardg03sx-curl-8.21.0-man",
+        "out": "/nix/store/fn0k2qlkgicm4z1s53z6132kkzi5izlr-curl-8.21.0"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
@@ -79,23 +82,24 @@
     {
       "attr_path": "jq",
       "broken": false,
-      "derivation": "/nix/store/n9cdsl2rnrzwh2c3kw6ib023vp9qfm9f-jq-1.8.1.drv",
+      "derivation": "/nix/store/dfwn0131h6xq4nifhvrw7ivpf9ch9j7m-jq-1.8.2.drv",
       "description": "Lightweight and flexible command-line JSON processor",
       "install_id": "jq",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
-      "name": "jq-1.8.1",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "name": "jq-1.8.2",
       "pname": "jq",
-      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
-      "rev_count": 1027867,
-      "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T04:40:47.719913Z",
+      "rev": "241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "rev_count": 1037713,
+      "rev_date": "2026-07-19T21:52:44Z",
+      "scrape_date": "2026-07-21T05:59:02.220512Z",
       "stabilities": [
+        "unstable",
         "staging",
-        "unstable"
+        "stable"
       ],
       "unfree": false,
-      "version": "1.8.1",
+      "version": "1.8.2",
       "outputs_to_install": [
         "bin",
         "bin",
@@ -103,11 +107,11 @@
         "man"
       ],
       "outputs": {
-        "bin": "/nix/store/q0pj1dw2nr57y6b4pqljklf0hy20alfj-jq-1.8.1-bin",
-        "dev": "/nix/store/3vavalljj18drsycygl361zqz4rryygd-jq-1.8.1-dev",
-        "doc": "/nix/store/nzhykmz9qn2vrb9ki6ddrpipic7rfpfb-jq-1.8.1-doc",
-        "man": "/nix/store/d21dmfzxkgpa7jkn5ggr0balzfg0j269-jq-1.8.1-man",
-        "out": "/nix/store/bzm6nb8fx5p005bygrarn48i6qy1ir3a-jq-1.8.1"
+        "bin": "/nix/store/1bp02949k0xdihbgphpwbzba1741pknk-jq-1.8.2-bin",
+        "dev": "/nix/store/gfgr11fc6rd0rnbalj2qk69s4jyy5rsb-jq-1.8.2-dev",
+        "doc": "/nix/store/ic07gi5rsjf4nq2ad3h40cpk92bfxb0f-jq-1.8.2-doc",
+        "man": "/nix/store/zcxx34cdvf8xbv26vw2hbgjmsjwxaj9h-jq-1.8.2-man",
+        "out": "/nix/store/mgrb1j6chhwmb7jwd6cjwihbni2szz1d-jq-1.8.2"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
@@ -116,20 +120,21 @@
     {
       "attr_path": "llama-swap",
       "broken": false,
-      "derivation": "/nix/store/fazpkm0jk9lq3gf9pfqjbg4iml0vihfn-llama-swap-224.drv",
+      "derivation": "/nix/store/1qv0szgfbv6w7zq35pwm99afkqpixcja-llama-swap-224.drv",
       "description": "Model swapping for llama.cpp (or any local OpenAPI compatible server)",
       "install_id": "llama-swap",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=241313f4e8e508cb9b13278c2b0fa25b9ca27163",
       "name": "llama-swap-224",
       "pname": "llama-swap",
-      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
-      "rev_count": 1027867,
-      "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T04:40:57.121253Z",
+      "rev": "241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "rev_count": 1037713,
+      "rev_date": "2026-07-19T21:52:44Z",
+      "scrape_date": "2026-07-21T05:59:11.510875Z",
       "stabilities": [
+        "unstable",
         "staging",
-        "unstable"
+        "stable"
       ],
       "unfree": false,
       "version": "224",
@@ -137,8 +142,8 @@
         "out"
       ],
       "outputs": {
-        "out": "/nix/store/p59cfscdj4zaygrprqppcyxzhkwd1bfw-llama-swap-224",
-        "wol": "/nix/store/dvcxm8xf7dwj848852pr0yqdc5zqs084-llama-swap-224-wol"
+        "out": "/nix/store/f2fksgy3r5irm11rgnz8g2i4lvmbpb7f-llama-swap-224",
+        "wol": "/nix/store/fh9f4rvmi7aw72bwaq2sj2cnyryy6hin-llama-swap-224-wol"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
@@ -147,20 +152,21 @@
     {
       "attr_path": "shellcheck",
       "broken": false,
-      "derivation": "/nix/store/fjnaf97vql7h3d6mzymqabz7lmbljj0x-shellcheck-0.11.0.drv",
+      "derivation": "/nix/store/k60yl5yh3wm8bid994cvg6j061lz83xq-shellcheck-0.11.0.drv",
       "description": "Shell script analysis tool",
       "install_id": "shellcheck",
       "license": "GPL-3.0-only",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=241313f4e8e508cb9b13278c2b0fa25b9ca27163",
       "name": "shellcheck-0.11.0",
       "pname": "shellcheck",
-      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
-      "rev_count": 1027867,
-      "rev_date": "2026-07-05T04:06:12Z",
-      "scrape_date": "2026-07-06T04:43:04.681164Z",
+      "rev": "241313f4e8e508cb9b13278c2b0fa25b9ca27163",
+      "rev_count": 1037713,
+      "rev_date": "2026-07-19T21:52:44Z",
+      "scrape_date": "2026-07-21T06:01:15.834108Z",
       "stabilities": [
+        "unstable",
         "staging",
-        "unstable"
+        "stable"
       ],
       "unfree": false,
       "version": "0.11.0",
@@ -170,10 +176,10 @@
         "man"
       ],
       "outputs": {
-        "bin": "/nix/store/vwvvnr1qxpwn0vffbsn8bkviqcgicizr-shellcheck-0.11.0-bin",
-        "doc": "/nix/store/wm6ncb99697pw9px9dpnx4vdq7mjskq2-shellcheck-0.11.0-doc",
-        "man": "/nix/store/g6cz58h4p7dasw30y0qrk0xwdp5595qv-shellcheck-0.11.0-man",
-        "out": "/nix/store/gykrz50q65f9jrljvd9bds46irfbd0bh-shellcheck-0.11.0"
+        "bin": "/nix/store/ixvpvkr2s92pbi6si1ki8yk3fs1gvlf2-shellcheck-0.11.0-bin",
+        "doc": "/nix/store/xd6y28b5cg1jyp9cjnnrwc0s0h55lz6r-shellcheck-0.11.0-doc",
+        "man": "/nix/store/8klljnbvqzp6j2f4f8njipxf4h2hyyra-shellcheck-0.11.0-man",
+        "out": "/nix/store/brkafranc7dph4p1brbnx8z70b0yl6l6-shellcheck-0.11.0"
       },
       "system": "x86_64-linux",
       "group": "toplevel",
@@ -181,7 +187,7 @@
     },
     {
       "install_id": "ik-llama-cpp",
-      "locked-url": "github:imkarrer/agent-hub/e8b6c92d3d1231b48ec7f5f00ee35c30a04ed88d?narHash=sha256-ra284tt//7FS8g7IuLKC1gmNdpUJeCPWhg3wigk7Sxw%3D",
+      "locked-url": "github:imkarrer/agent-hub/33c3b83788511f98d228222dfc41193534fceb81?narHash=sha256-XYgy1e2z0pIFcQfSUp6vSj%2BAKjLALtb2843b3XfiLqo%3D",
       "flake-description": "Local coding-agent host: CPU/RAM-bound LLM serving + agent harness. Prototype on WSL2 NixOS, deploy to ac-box.",
       "locked-flake-attr-path": "packages.x86_64-linux.ik-llama-cpp",
       "derivation": "/nix/store/5cc0wnjdfxvf1rk0jb77ba7555xl0nn6-llama-cpp-3bb386e.drv",
@@ -210,7 +216,7 @@
     },
     {
       "install_id": "stable-diffusion-cpp",
-      "locked-url": "github:imkarrer/agent-hub/e8b6c92d3d1231b48ec7f5f00ee35c30a04ed88d?narHash=sha256-ra284tt//7FS8g7IuLKC1gmNdpUJeCPWhg3wigk7Sxw%3D",
+      "locked-url": "github:imkarrer/agent-hub/33c3b83788511f98d228222dfc41193534fceb81?narHash=sha256-XYgy1e2z0pIFcQfSUp6vSj%2BAKjLALtb2843b3XfiLqo%3D",
       "flake-description": "Local coding-agent host: CPU/RAM-bound LLM serving + agent harness. Prototype on WSL2 NixOS, deploy to ac-box.",
       "locked-flake-attr-path": "packages.x86_64-linux.stable-diffusion-cpp",
       "derivation": "/nix/store/w47bzgc11g0fjnn7s209hnwyxmdlks2x-stable-diffusion-cpp-master-625-f683c88.drv",
