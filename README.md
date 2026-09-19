@@ -29,7 +29,7 @@ not global `allowedTCPPorts`.
 Since homelab ADR 0009 step 1 (18 Sep 2026) the model server on ac-box runs from this
 repo's **flox environment**, not from Nix:
 
-| | The environment (`.flox/env/manifest.toml`, `llama-swap.yaml`) | The module (`modules/agent-hub.nix`) |
+| | The environment (`.flox/env/manifest.toml`, `llama-swap.yaml`) | The unit skeleton, in homelab (`hosts/ac-box/tenants/agent-hub.nix`; `modules/agent-hub.nix` was deleted 18 Sep 2026) |
 | --- | --- | --- |
 | What it is | The tenant: the packages (ik_llama.cpp, stable-diffusion.cpp, llama-swap 224), the six-model table, the command. A tenant author writes no Nix. | The unit's skeleton in the closure: the `agent-hub` user, `/srv/agent-hub` and `/var/lib/agent-hub`, the firewall rule, `agent-hub-llm.service`'s name / user / restart policy / ordering, nginx (the landing page) and qdrant. It generates nothing that runs a model. |
 | Who runs it | A developer: `flox activate`. The box: `agent-hub-llm.service`'s `ExecStart=flox activate -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml -listen 127.0.0.1:8100`, set by homelab's unit stub (`homelab.tenants.agent-hub.environment` in `hosts/ac-box/configuration.nix`). | homelab imports it as a flake input, as before, until `homelab-158.11` makes the stub the whole unit. Without the stub the unit exists and fails on start with a message naming the stub -- never a unit that quietly serves the old way. |

@@ -20,9 +20,11 @@
       pkgs = import nixpkgs { inherit system; };
     in
     {
-      nixosModules.agent-hub = import ./modules/agent-hub.nix;
-      nixosModules.default = self.nixosModules.agent-hub;
-
+      # No nixosModules since 18 Sep 2026 (homelab-158.11): the box runs this
+      # tenant from .flox/ (ADR 0009), and the unit skeleton lives in homelab
+      # (hosts/ac-box/tenants/agent-hub.nix). This flake exists for the two
+      # packages the manifest installs by `.flake` reference, and for
+      # `nix flake check` in CI.
       packages.${system} = {
         runner-image = import ./nix/runner-image.nix { inherit pkgs; };
         ik-llama-cpp = import ./nix/ik-llama-cpp.nix { inherit pkgs; };

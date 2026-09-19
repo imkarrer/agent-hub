@@ -9,7 +9,7 @@
 # scripts/hub-gates.sh reproduces locally with flox pinned to the agent's
 # version. The tenant's own gate is scripts/ci_test.sh: llama-swap loads the
 # model table with the environment's binaries. The COMPOSITION gate -- does
-# ac-box still evaluate with modules/agent-hub.nix at this commit? -- cannot
+# ac-box still evaluate? (modules/agent-hub.nix is gone; homelab holds the unit) -- cannot
 # run here, because the host that composes it lives in homelab; it runs one
 # hop later, in homelab's bump-lock step, before anything is pushed there.
 #

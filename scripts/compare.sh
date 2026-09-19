@@ -26,7 +26,7 @@ MAX_TOKENS=${MAX_TOKENS:-128}
 if [ -n "$prompt_file" ]; then
   body=$(cat "$prompt_file")
 else
-  body=$(head -c 6000 "$here/../modules/agent-hub.nix")
+  body=$(head -c 6000 "$here/../README.md")  # any 6 kB of prose; the module this read is gone
 fi
 nonce=$(date +%s%N)
 
