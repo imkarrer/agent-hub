@@ -6,14 +6,27 @@
 # table and the wiring, not inference; scripts/smoke-test.sh is inference.
 #
 # Runs inside `flox activate` (CI's flox plugin, or hub-gates.sh locally),
-# which is what sets FLOX_ENV and the AGENT_HUB_* defaults. Ports are
-# private to this run so it can sit beside a live unit on a dev box.
+# which is what sets FLOX_ENV. Every AGENT_HUB_* value this gate needs is
+# named HERE, not taken from the manifest hook's laptop defaults: the hook
+# sets none of them when it decides it is under a systemd unit, and on the
+# hub's native CI agent (homelab-158.6, a job nested inside the agent's
+# own `flox activate` started by systemd) it decided exactly that, though
+# the job's environment had INVOCATION_ID unset -- build 17, 19 Sep 2026,
+# `AGENT_HUB_SWAP_CONFIG: unbound variable`. A gate that depends on a
+# hook's environment detection is a gate that changes with the agent's
+# shape; this one does not. Ports are private to this run so it can sit
+# beside a live unit on a dev box; CI_* overrides stay for that.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 : "${FLOX_ENV:?run me under flox activate}"
+export AGENT_HUB_MODELS="${CI_MODELS:-$PWD/models}"
+export AGENT_HUB_THREADS="${CI_THREADS:-2}"
+export AGENT_HUB_CTX="${CI_CTX:-4096}"
 export AGENT_HUB_LISTEN="127.0.0.1:${CI_SWAP_PORT:-18999}"
 export AGENT_HUB_BACKEND_PORT="${CI_BACKEND_PORT:-18990}"
+export AGENT_HUB_SWAP_CONFIG="$PWD/llama-swap.yaml"
+export AGENT_HUB_ASSETS="$PWD/nix"
 
 echo "== binaries =="
 for b in llama-server sd-server llama-swap; do
