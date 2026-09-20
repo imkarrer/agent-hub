@@ -48,7 +48,7 @@ for _ in $(seq 1 20); do
 done
 [ -s "$log.models" ] || { echo "no answer from llama-swap:"; cat "$log"; exit 1; }
 
-want="coder embed instruct utility"
+want="coder embed reviewer utility"
 got=$(jq -r '.data[].id' "$log.models" | sort | tr '\n' ' ' | sed 's/ $//')
 rm -f "$log.models"
 if [ "$got" = "$want" ]; then

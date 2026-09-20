@@ -15,9 +15,9 @@
 # wanted for a second reviewer and a utility model).
 #
 # Idempotent and resumable: curl -C - continues a partial file, and a complete
-# file is a no-op. ~175 GB in total; from Hugging Face on a 1 Gbit link that
+# file is a no-op. ~155 GB in total; from Hugging Face on a 1 Gbit link that
 # is about two hours the first time. Pass model names to fetch a subset:
-#   fetch-model.sh coder instruct embed utility
+#   fetch-model.sh coder reviewer embed utility
 set -euo pipefail
 
 DEST="${DEST:-/srv/agent-hub/models}"
@@ -40,11 +40,11 @@ coder() {
   done
 }
 
-# The general-purpose sibling: same architecture, size and speed, tuned for
-# instructions and prose rather than code. Serves inquire-platform's rubric
-# scoring. One file, ~85 GB.
-instruct() {
-  get Qwen/Qwen3-Next-80B-A3B-Instruct-GGUF Qwen3-Next-80B-A3B-Instruct-Q8_0.gguf
+# The reviewer: gpt-oss-120b, native MXFP4, one file, ~63 GB. Replaced
+# Qwen3-Next-80B-A3B-Instruct (Qwen/Qwen3-Next-80B-A3B-Instruct-GGUF, 85 GB)
+# on 20 Sep 2026, homelab-e00: a second model family for the review call.
+reviewer() {
+  get ggml-org/gpt-oss-120b-GGUF gpt-oss-120b-MXFP4.gguf
 }
 
 # The utility model: Qwen3-4B-Instruct-2507, dense, for the cheap calls
@@ -62,6 +62,6 @@ embed() {
   get Qwen/Qwen3-Embedding-0.6B-GGUF Qwen3-Embedding-0.6B-Q8_0.gguf
 }
 
-for m in "${@:-coder instruct embed utility}"; do "$m"; done
+for m in "${@:-coder reviewer embed utility}"; do "$m"; done
 echo "=== $(date -Is) done"
 ls -la "$DEST"
