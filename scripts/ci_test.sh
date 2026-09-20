@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The tenant's own gate: the environment's binaries resolve, and llama-swap
 # loads llama-swap.yaml -- every ${env.*} macro set by the manifest's hook,
-# every model entry parsed -- and lists the three models the box serves. It
+# every model entry parsed -- and lists the four models the box serves. It
 # starts no backend (that needs the GGUFs, ~170 GB), so this proves the
 # table and the wiring, not inference; scripts/smoke-test.sh is inference.
 #
@@ -48,7 +48,7 @@ for _ in $(seq 1 20); do
 done
 [ -s "$log.models" ] || { echo "no answer from llama-swap:"; cat "$log"; exit 1; }
 
-want="coder embed instruct"
+want="coder embed instruct utility"
 got=$(jq -r '.data[].id' "$log.models" | sort | tr '\n' ' ' | sed 's/ $//')
 rm -f "$log.models"
 if [ "$got" = "$want" ]; then

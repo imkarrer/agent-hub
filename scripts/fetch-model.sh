@@ -15,9 +15,9 @@
 # wanted for a second reviewer and a utility model).
 #
 # Idempotent and resumable: curl -C - continues a partial file, and a complete
-# file is a no-op. ~170 GB in total; from Hugging Face on a 1 Gbit link that
+# file is a no-op. ~175 GB in total; from Hugging Face on a 1 Gbit link that
 # is about two hours the first time. Pass model names to fetch a subset:
-#   fetch-model.sh coder instruct embed
+#   fetch-model.sh coder instruct embed utility
 set -euo pipefail
 
 DEST="${DEST:-/srv/agent-hub/models}"
@@ -47,6 +47,13 @@ instruct() {
   get Qwen/Qwen3-Next-80B-A3B-Instruct-GGUF Qwen3-Next-80B-A3B-Instruct-Q8_0.gguf
 }
 
+# The utility model: Qwen3-4B-Instruct-2507, dense, for the cheap calls
+# (titles, summaries, pre-checks) so they never take one of coder's slots.
+# Was Z-Image-Turbo's text encoder; kept when the image models left. ~4 GB.
+utility() {
+  get unsloth/Qwen3-4B-Instruct-2507-GGUF Qwen3-4B-Instruct-2507-Q8_0.gguf
+}
+
 # Embeddings: Qwen3-Embedding-0.6B, the small end of the same family the
 # chat models come from, 1024-dim vectors, 32k context, pooling stored in
 # the GGUF (last token). Served by llama-server in embedding mode and
@@ -55,6 +62,6 @@ embed() {
   get Qwen/Qwen3-Embedding-0.6B-GGUF Qwen3-Embedding-0.6B-Q8_0.gguf
 }
 
-for m in "${@:-coder instruct embed}"; do "$m"; done
+for m in "${@:-coder instruct embed utility}"; do "$m"; done
 echo "=== $(date -Is) done"
 ls -la "$DEST"

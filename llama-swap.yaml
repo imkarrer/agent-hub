@@ -4,9 +4,9 @@
 # longer generates one. Written by hand from the JSON the module used to
 # generate, read off the box on 17 Sep 2026: same names, same flags in the
 # same order, same concurrency set (six models then; the three image
-# backends left 20 Sep 2026, homelab-b9u); `${env.*}` macros where
-# the module had store paths and host constants. hosts/ac-box/
-# configuration.nix still carries the per-model reasoning (which quant,
+# backends left 20 Sep 2026, homelab-b9u, and utility joined the same
+# day, homelab-8r5); `${env.*}` macros where the module had store paths
+# and host constants. hosts/ac-box/configuration.nix still carries the per-model reasoning (which quant,
 # why these flags) beside values nothing reads any more; when it moves,
 # it moves here.
 #
@@ -113,17 +113,49 @@ models:
     metadata:
       kind: embedding
 
-# The three may stay resident together (the module's `concurrent` set, minus
+  # Utility: Qwen3-4B-Instruct-2507, dense, Q8_0 (4.3 GB) -- the cheap calls
+  # (opencode's small_model: titles, summaries; pre-checks) that otherwise
+  # take one of coder's two slots. Chosen 20 Sep 2026 (homelab-8r5) because
+  # it was already on the box; measured there with bench.sh inside
+  # background.slice, the two 80Bs resident (-rtr, -fa 1, pp1024/tg32):
+  #     t=4   pp  33 tok/s   tg  6.3
+  #     t=8   pp  64 tok/s   tg  9.6
+  #     t=23  pp 162 tok/s   tg 11.6
+  # Decode is bandwidth-bound: a dense 4B at Q8 reads all 4.3 GB per
+  # token, so ~12 tok/s is this box's ceiling for it -- barely above the
+  # 80B MoE's 13 (3B active). A 200-token answer is ~20 s, not the < 5 s
+  # the bead hoped for; a title is ~3 s. If that matters, the swap is one
+  # line: Q4_K_M (~2.5 GB, ~20 tok/s expected) or gpt-oss-20b (3.6B
+  # active, ~25). Eight threads, not the unit's 23: decode loses 17 % and
+  # prefill 60 %, and coder keeps 15 cores for its own prefill while this
+  # one answers -- the point is that a cheap call never queues behind a
+  # review, not that it is fast. Own ctx (16k is plenty for a summary) and
+  # a small prompt cache; KV at 16k with FA is ~1.2 GiB, ~6 GiB resident.
+  utility:
+    cmd: >
+      ${llama_server} --model ${models}/Qwen3-4B-Instruct-2507-Q8_0.gguf
+      --host 127.0.0.1 --ctx-size 16384 --threads 8
+      ${llama_extra} --cache-ram 1024 --port ${PORT}
+    proxy: "http://127.0.0.1:${PORT}"
+    checkEndpoint: /health
+    aliases: []
+    ttl: 0
+    name: utility
+    description: "Qwen3-4B-Instruct-2507 Q8_0 -- titles, summaries, pre-checks; ~12 tok/s. Chat tab."
+    metadata:
+      kind: llama
+
+# All four stay resident together (the module's `concurrent` set, minus
 # the image model it also held: the image backends left on 20 Sep 2026,
 # homelab-b9u -- generating evicted both 80Bs, a minute's reload and a cold
-# prompt cache for the next review, and the RAM is wanted for a second-
-# family reviewer and a utility model). Top-level `matrix:` is the form the
-# module wrote and 224 reads (a backwards-compat alias of
+# prompt cache for the next review -- and plus utility, homelab-8r5).
+# Top-level `matrix:` is the form the module wrote and 224 reads (a backwards-compat alias of
 # routing.router.settings.matrix).
 matrix:
   vars:
     v0: coder
     v1: embed
     v2: instruct
+    v3: utility
   sets:
-    set0: "v0 & v2 & v1"
+    set0: "v0 & v2 & v1 & v3"
