@@ -59,7 +59,7 @@ models:
   # sequences reads the weights once for both; prefill (compute bound)
   # shares the 23 threads, no worse than the serial wait it replaces. KV for
   # a second 32k slot is small: Qwen3-Next's hybrid attention keeps few
-  # full-attention layers. Not the instruct backend: one client at a time.
+  # full-attention layers. Not the reviewer backend: one client at a time.
   coder:
     cmd: >
       ${llama_server} --model ${models}/Qwen3-Coder-Next-Q8_0-00001-of-00004.gguf
@@ -74,22 +74,46 @@ models:
     metadata:
       kind: llama
 
-  # The same architecture tuned for instructions and prose. The aliases are
-  # the hosted model names inquire-platform hard-codes, so its Anthropic SDK
-  # pointed at this port lands here unchanged.
-  instruct:
+  # The reviewer: gpt-oss-120b, 117B-A5.1B MoE, native MXFP4 (63 GB),
+  # OpenAI lineage -- a model family that is NOT Qwen3-Next, so bead-loop's
+  # stage-2 review is no longer the coder's twin checking the coder's
+  # work (homelab-e00, 20 Sep 2026). It REPLACES instruct: the box holds
+  # two 80-GiB-class models beside utility and embed, not three
+  # (background.slice is 203 GiB; both Qwens alone were 162 GiB anonymous),
+  # and the review call was most of what instruct did. The aliases are the
+  # hosted model names inquire-platform hard-codes, so its Anthropic SDK
+  # pointed at this port lands here unchanged -- its rubric scoring now
+  # runs on this model. The instruct GGUF stays on disk for a while.
+  #
+  # NOT `${llama_extra}`: -rtr is fatal for MXFP4 on ik 3bb386e -- bench.sh
+  # inside background.slice, t=23, pp1024/tg32: with -rtr 51 / 0.4 tok/s
+  # (the repack lands the MXFP4 tensors on a scalar path), without it
+  # 110 / 14.1 -- faster decode than coder's 13 (5.1B active vs 3B, but
+  # 4-bit weights). So this backend runs mmap'd: its weights are page
+  # cache, not anonymous memory, and count against the slice as
+  # reclaimable -- under pressure they are what gets dropped and re-read
+  # from NVMe (the load is ~4 s from cache, ~40 s cold). No --mlock: the
+  # unit has no RLIMIT_MEMLOCK for 59 GiB. Tool calls parse under --jinja
+  # (finish_reason tool_calls, arguments as JSON; probed 20 Sep) and the
+  # reasoning channel comes back as reasoning_content, not in content.
+  # Reasoning effort is per request (low/medium for reviews); the chat
+  # template default is medium. `instruct` stays as an alias while the
+  # callers move (bead-loop's reviewer, opencode's provider); llama-swap
+  # logs the requested name, so drop it once the log shows none.
+  reviewer:
     cmd: >
-      ${llama_server} --model ${models}/Qwen3-Next-80B-A3B-Instruct-Q8_0.gguf
+      ${llama_server} --model ${models}/gpt-oss-120b-MXFP4.gguf
       --host 127.0.0.1 --ctx-size ${ctx} --threads ${threads}
-      ${llama_extra} --cache-ram 8192 --port ${PORT}
+      --flash-attn on --jinja --metrics --cache-ram 8192 --port ${PORT}
     proxy: "http://127.0.0.1:${PORT}"
     checkEndpoint: /health
     aliases:
+      - instruct
       - claude-sonnet-4-6
       - claude-haiku-4-5-20251001
     ttl: 0
-    name: instruct
-    description: "Qwen3-Next-80B-A3B-Instruct Q8_0 -- prose, judgement, inquire-platform scoring. Chat tab."
+    name: reviewer
+    description: "gpt-oss-120b MXFP4 -- the second-family code reviewer; prose, judgement, inquire-platform scoring. Chat tab."
     metadata:
       kind: llama
 
@@ -155,7 +179,7 @@ matrix:
   vars:
     v0: coder
     v1: embed
-    v2: instruct
+    v2: reviewer
     v3: utility
   sets:
     set0: "v0 & v2 & v1 & v3"

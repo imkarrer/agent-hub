@@ -234,8 +234,10 @@ is the 14 Sep 2026 sweep that took the deployed server from 17 to 140 tok/s pref
 before trusting any number in this README or in homelab's routing skill against a new build.
 
 **Several models, one port.** `llama-swap.yaml` puts llama-swap on the port with one backend
-per entry -- ac-box serves `coder` (Qwen3-Coder-Next), `instruct` (Qwen3-Next Instruct, with
-`claude-*` aliases so inquire-platform's Anthropic SDK lands on it unchanged), `embed`
+per entry -- ac-box serves `coder` (Qwen3-Coder-Next), `reviewer` (gpt-oss-120b MXFP4, the
+second-family review call and inquire-platform's scorer -- it replaced Qwen3-Next-Instruct on
+20 Sep 2026, homelab-e00, and carries the `claude-*` aliases inquire-platform's Anthropic
+SDK hard-codes, plus `instruct` while callers move), `embed`
 (Qwen3-Embedding-0.6B, `/v1/embeddings` only) and `utility` (Qwen3-4B-Instruct-2507, ~12 tok/s:
 titles, summaries, pre-checks, so they never queue behind a review); the three image models
 (stable-diffusion.cpp: `z-image-turbo`, `flux2-klein-4b`, `flux2-klein-9b`) left on 20 Sep 2026
@@ -255,7 +257,7 @@ llama-swap ...` with its own `AGENT_HUB_*`; its GPU table is not `llama-swap.yam
 import pinned before this change. Deliberately not decided here.
 
 **Consuming it from a coding agent (opencode).** The port is a plain OpenAI-compatible
-`/v1`; the `model` in a request is an entry name from `models` (`coder`, `instruct`), which
+`/v1`; the `model` in a request is an entry name from `models` (`coder`, `reviewer`), which
 `GET /v1/models` lists -- not the GGUF's name. Three things a client cannot fix on its side,
 all found 16 Sep 2026 pointing opencode at both boxes:
 
