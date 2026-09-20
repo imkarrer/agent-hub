@@ -31,30 +31,30 @@ repo's **flox environment**, not from Nix:
 
 | | The environment (`.flox/env/manifest.toml`, `llama-swap.yaml`) | The unit skeleton, in homelab (`hosts/ac-box/tenants/agent-hub.nix`; `modules/agent-hub.nix` was deleted 18 Sep 2026) |
 | --- | --- | --- |
-| What it is | The tenant: the packages (ik_llama.cpp, stable-diffusion.cpp, llama-swap 224), the six-model table, the command. A tenant author writes no Nix. | The unit's skeleton in the closure: the `agent-hub` user, `/srv/agent-hub` and `/var/lib/agent-hub`, the firewall rule, `agent-hub-llm.service`'s name / user / restart policy / ordering, nginx (the landing page) and qdrant. It generates nothing that runs a model. |
+| What it is | The tenant: the packages (ik_llama.cpp, llama-swap 224), the three-model table, the command. A tenant author writes no Nix. | The unit's skeleton in the closure: the `agent-hub` user, `/srv/agent-hub` and `/var/lib/agent-hub`, the firewall rule, `agent-hub-llm.service`'s name / user / restart policy / ordering, nginx (the landing page) and qdrant. It generates nothing that runs a model. |
 | Who runs it | A developer: `flox activate`. The box: `agent-hub-llm.service`'s `ExecStart=flox activate -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml -listen 127.0.0.1:8100`, set by homelab's unit stub (`homelab.tenants.agent-hub.environment` in `hosts/ac-box/configuration.nix`). | homelab imports it as a flake input, as before, until `homelab-158.11` makes the stub the whole unit. Without the stub the unit exists and fails on start with a message naming the stub -- never a unit that quietly serves the old way. |
 | How a change reaches the box | Push to `main`; CI (`.buildkite/pipeline.yml`) proves the table loads and stages the sha; the box's `agent-hub-environment-pull` checks it out, warms it once online, restarts the unit. No closure switch. | A `flake.lock` bump in homelab (`bump-lock`), a closure switch at 03:30 -- only when a host-side thing changes: a directory, the landing page, qdrant. |
-| Host facts | Seven `AGENT_HUB_*` variables the unit's `Environment=` sets: models dir, threads, ctx, listen address, backend port, the table's path, the assets dir. The manifest's hook sets **none** of them under a unit; a missing one is llama-swap's refusal at load, `environment variable 'X' is not set`. | Declared as options (`llm.threads`, `llm.contextSize`, `llm.port`, `llm.landingPage`, `lanAddress`, `dataDir`, `llm.backendPort`) that homelab's stub reads from, so a value has one spelling. Table fields ac-box still sets (`engine`, `extraArgs`, `concurrent`, a model's `modelPath`...) are declared but read by nothing; `llama-swap.yaml` is the table. |
+| Host facts | Six `AGENT_HUB_*` variables the unit's `Environment=` sets: models dir, threads, ctx, listen address, backend port, the table's path. The manifest's hook sets **none** of them under a unit; a missing one is llama-swap's refusal at load, `environment variable 'X' is not set`. | Declared as options (`llm.threads`, `llm.contextSize`, `llm.port`, `llm.landingPage`, `lanAddress`, `dataDir`, `llm.backendPort`) that homelab's stub reads from, so a value has one spelling. Table fields ac-box still sets (`engine`, `extraArgs`, `concurrent`, a model's `modelPath`...) are declared but read by nothing; `llama-swap.yaml` is the table. |
 
 ### What a developer runs
 
 ```bash
-flox activate                       # llama-server (ik fork), sd-server, llama-swap, curl, jq, shellcheck on PATH
+flox activate                       # llama-server (ik fork), llama-swap, curl, jq, shellcheck on PATH
 DEST=$PWD/models scripts/fetch-model.sh embed   # models/ is gitignored
 flox activate -- llama-swap -config llama-swap.yaml -listen 127.0.0.1:18900
 curl -s http://127.0.0.1:18900/v1/models | jq -r '.data[].id'
 ```
 
 Outside a systemd unit the manifest's hook fills in **laptop** values -- 4 threads,
-8192 ctx, `$PWD/models`, `127.0.0.1:18900`, backends from 18910, the table and
-`nix/sd-ui.html` from the checkout -- chosen so a small model runs beside a NixOS unit
+8192 ctx, `$PWD/models`, `127.0.0.1:18900`, backends from 18910, the table from the
+checkout -- chosen so a small model runs beside a NixOS unit
 on the same machine, and so that none of them is the box's (23 threads on a laptop was
 the earlier mistake; the box's values live in `hosts/ac-box/configuration.nix` and
 arrive by the stub, never by default). Export any `AGENT_HUB_*` to override.
 `flox activate --start-services` runs the same command under process-compose for an
 interactive session; it is the developer's shape, not the unit's (the manifest says
 why). `scripts/ci_test.sh` is the gate CI runs: the binaries resolve inside the
-environment and llama-swap lists the six models; `bash
+environment and llama-swap lists the three models; `bash
 /path/to/homelab/scripts/hub-gates.sh agent-hub` runs it locally with flox pinned to
 the box's version.
 
@@ -196,11 +196,10 @@ The environment was proven on this WSL box 17 Sep 2026 with `AGENT_HUB_MODELS` p
 a directory holding the production `embed` GGUF (fetched with `DEST=$PWD/models
 scripts/fetch-model.sh embed`) and the local Qwen3-Coder-30B-A3B substituted for `coder`'s
 file: /v1/embeddings answered 1024 dims, /v1/chat/completions answered, and a request with
-`tools` came back as a parsed `tool_calls` -- the ik build with `--jinja`. ik_llama.cpp and
-stable-diffusion.cpp are installed from this repo's own flake outputs (the catalog has
-neither at these options), so a change to `nix/ik-llama-cpp.nix` or
-`nix/stable-diffusion-cpp.nix` reaches the environment only after it is on GitHub *and*
-`flox upgrade` has re-locked -- two commits, in that order.
+`tools` came back as a parsed `tool_calls` -- the ik build with `--jinja`. ik_llama.cpp is
+installed from this repo's own flake output (the catalog does not have it at these
+options), so a change to `nix/ik-llama-cpp.nix` reaches the environment only after it is on
+GitHub *and* `flox upgrade` has re-locked -- two commits, in that order.
 
 To exercise the Phase 2 runner via the module (`services.agent-hub.enable`,
 `services.agent-hub.runner.enable`, `githubTokenFile`, `allowedRepos`, `llamaBaseUrl`
@@ -236,9 +235,11 @@ before trusting any number in this README or in homelab's routing skill against 
 
 **Several models, one port.** `llama-swap.yaml` puts llama-swap on the port with one backend
 per entry -- ac-box serves `coder` (Qwen3-Coder-Next), `instruct` (Qwen3-Next Instruct, with
-`claude-*` aliases so inquire-platform's Anthropic SDK lands on it unchanged), three image
-models (stable-diffusion.cpp: `z-image-turbo`, `flux2-klein-4b`, `flux2-klein-9b`) and `embed`
-(Qwen3-Embedding-0.6B, `/v1/embeddings` only). A model runs alone unless the table's `matrix`
+`claude-*` aliases so inquire-platform's Anthropic SDK lands on it unchanged) and `embed`
+(Qwen3-Embedding-0.6B, `/v1/embeddings` only); the three image models (stable-diffusion.cpp:
+`z-image-turbo`, `flux2-klein-4b`, `flux2-klein-9b`) left on 20 Sep 2026 (homelab-b9u:
+generating evicted both 80Bs, and the RAM is wanted for a second-family reviewer and a
+utility model). A model runs alone unless the table's `matrix`
 lists it in a set that may stay resident together; a swap is 20-60 s. `/` on that port is the
 front page (the module's `landingPage`, nginx, listing the models from
 `services.agent-hub.llm.models`' `kind` and `description` -- the names there must match the
@@ -305,8 +306,8 @@ which owns `nixpkgs` for the whole closure and sets
 `inputs.agent-hub.inputs.nixpkgs.follows = "nixpkgs"`; this flake's own
 `inputs.nixpkgs.url` (`nixos-26.05`) governs only standalone use (`nix build`, `nix flake
 check`, `nix develop`) and never reaches the built closure. The *environment* is pinned by
-`.flox/env/manifest.lock`: the fork and stable-diffusion.cpp at this repo's own rev (so
-their nixpkgs is this flake's, not the host's -- the point of ADR 0009), llama-swap 224
+`.flox/env/manifest.lock`: the fork at this repo's own rev (so its nixpkgs is this
+flake's, not the host's -- the point of ADR 0009), llama-swap 224
 from the catalog. The flag audit that used to live here ("every flag this module passes
 exists in b9190") is now `scripts/ci_test.sh`'s: llama-swap loads the table with the
 environment's binaries on every push, and a flag the fork does not know fails there.

@@ -13,11 +13,11 @@
 # run here, because the host that composes it lives in homelab; it runs one
 # hop later, in homelab's bump-lock step, before anything is pushed there.
 #
-# The first build after the manifest lands is slow: the two flake packages
-# (ik_llama.cpp, stable-diffusion.cpp) have no binary in the catalog, so
-# the agent's nix builds them from source. The plugin's post-command hook
-# then pushes the environment's closure to the MinIO cache (S3_CACHE_PUSH),
-# so every later cold container substitutes instead.
+# The first build after the manifest lands is slow: the flake package
+# (ik_llama.cpp) has no binary in the catalog, so the agent's nix builds it
+# from source. The plugin's post-command hook then pushes the environment's
+# closure to the MinIO cache (S3_CACHE_PUSH), so every later cold container
+# substitutes instead.
 #
 # ...and on two cores, not four. Build 6 (17 Sep 2026) OOM-killed cc1plus:
 # the agent's container sees nproc=4 (batch's two physical cores plus SMT
@@ -60,13 +60,13 @@ steps:
   - label: ":nix: flake evaluates"
     key: check
     depends_on: test
-    # Not --no-build. nix/ik-llama-cpp.nix and nix/stable-diffusion-cpp.nix
-    # import files out of their fetched sources (callPackage
+    # Not --no-build. nix/ik-llama-cpp.nix imports files out of its
+    # fetched source (callPackage
     # "${src}/.devops/nix/scope.nix"), which is import-from-derivation: the
     # source must be IN the store to evaluate. On a WSL box that has built
     # the packages it already is; on the agent's own /nix it is not, and
     # --no-build turns the fetch into "path is not valid" (build 1, 15 Sep).
-    # Without the flag nix fetches the two sources (once; they stay in the
+    # Without the flag nix fetches the source (once; it stays in the
     # agent's store) and builds nothing -- this flake has no `checks`.
     # Under the plugin for uniformity; nix is the agent's, not the
     # environment's.

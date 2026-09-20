@@ -18,13 +18,10 @@
       },
       "shellcheck": {
         "pkg-path": "shellcheck"
-      },
-      "stable-diffusion-cpp": {
-        "flake": "github:imkarrer/agent-hub#stable-diffusion-cpp"
       }
     },
     "hook": {
-      "on-activate": "  if [ -z \"${INVOCATION_ID:-}\" ]; then\n    # A developer's shell, on a machine that is not the box. Every value\n    # here is deliberately NOT ac-box's (those are hosts/ac-box/\n    # configuration.nix's, passed by the stub): enough to load the table\n    # and run one small model beside a NixOS unit on the same machine.\n    #\n    # The GGUFs: models/ in this checkout, gitignored;\n    # `DEST=$PWD/models scripts/fetch-model.sh <name>` fills it.\n    : \"${AGENT_HUB_MODELS:=$FLOX_ENV_PROJECT/models}\"\n    # --threads / -t for every backend. Four: a laptop's share, never\n    # auto-detect (on the box that is 56 threads and the race servers\n    # starve; the box says 23).\n    : \"${AGENT_HUB_THREADS:=4}\"\n    # --ctx-size for the chat models (the box says 32768; the embedding\n    # model has its own 8192 in llama-swap.yaml regardless).\n    : \"${AGENT_HUB_CTX:=8192}\"\n    # Where llama-swap listens: loopback, and not :8100, which the NixOS\n    # unit on the WSL box holds (the box says 127.0.0.1:8100, nginx in\n    # front). scripts/ci_test.sh sets its own 18999 to sit beside this.\n    : \"${AGENT_HUB_LISTEN:=127.0.0.1:18900}\"\n    # llama-swap's loopback backends start here, off the box's 18100 for\n    # the same reason.\n    : \"${AGENT_HUB_BACKEND_PORT:=18910}\"\n    # The model table, and the directory holding sd-ui.html for the image\n    # backends: two files of this repo, at the checkout flox activated\n    # (FLOX_ENV_PROJECT). A FloxHub generation carries the manifest and\n    # lock only, which is why the box runs the tree at a sha (ADR 0009).\n    : \"${AGENT_HUB_SWAP_CONFIG:=$FLOX_ENV_PROJECT/llama-swap.yaml}\"\n    : \"${AGENT_HUB_ASSETS:=$FLOX_ENV_PROJECT/nix}\"\n    export AGENT_HUB_MODELS AGENT_HUB_THREADS AGENT_HUB_CTX AGENT_HUB_LISTEN \\\n           AGENT_HUB_BACKEND_PORT AGENT_HUB_SWAP_CONFIG AGENT_HUB_ASSETS\n  fi\n"
+      "on-activate": "  if [ -z \"${INVOCATION_ID:-}\" ]; then\n    # A developer's shell, on a machine that is not the box. Every value\n    # here is deliberately NOT ac-box's (those are hosts/ac-box/\n    # configuration.nix's, passed by the stub): enough to load the table\n    # and run one small model beside a NixOS unit on the same machine.\n    #\n    # The GGUFs: models/ in this checkout, gitignored;\n    # `DEST=$PWD/models scripts/fetch-model.sh <name>` fills it.\n    : \"${AGENT_HUB_MODELS:=$FLOX_ENV_PROJECT/models}\"\n    # --threads / -t for every backend. Four: a laptop's share, never\n    # auto-detect (on the box that is 56 threads and the race servers\n    # starve; the box says 23).\n    : \"${AGENT_HUB_THREADS:=4}\"\n    # --ctx-size for the chat models (the box says 32768; the embedding\n    # model has its own 8192 in llama-swap.yaml regardless).\n    : \"${AGENT_HUB_CTX:=8192}\"\n    # Where llama-swap listens: loopback, and not :8100, which the NixOS\n    # unit on the WSL box holds (the box says 127.0.0.1:8100, nginx in\n    # front). scripts/ci_test.sh sets its own 18999 to sit beside this.\n    : \"${AGENT_HUB_LISTEN:=127.0.0.1:18900}\"\n    # llama-swap's loopback backends start here, off the box's 18100 for\n    # the same reason.\n    : \"${AGENT_HUB_BACKEND_PORT:=18910}\"\n    # The model table: a file of this repo, at the checkout flox activated\n    # (FLOX_ENV_PROJECT). A FloxHub generation carries the manifest and\n    # lock only, which is why the box runs the tree at a sha (ADR 0009).\n    : \"${AGENT_HUB_SWAP_CONFIG:=$FLOX_ENV_PROJECT/llama-swap.yaml}\"\n    export AGENT_HUB_MODELS AGENT_HUB_THREADS AGENT_HUB_CTX AGENT_HUB_LISTEN \\\n           AGENT_HUB_BACKEND_PORT AGENT_HUB_SWAP_CONFIG\n  fi\n"
     },
     "options": {
       "systems": [
@@ -207,37 +204,6 @@
       "pname": "llama-cpp",
       "version": "3bb386e",
       "description": "ik_llama.cpp: llama.cpp fork with better CPU performance",
-      "licenses": [
-        "MIT"
-      ],
-      "broken": false,
-      "unfree": false,
-      "priority": 5
-    },
-    {
-      "install_id": "stable-diffusion-cpp",
-      "locked-url": "github:imkarrer/agent-hub/33c3b83788511f98d228222dfc41193534fceb81?narHash=sha256-XYgy1e2z0pIFcQfSUp6vSj%2BAKjLALtb2843b3XfiLqo%3D",
-      "flake-description": "Local coding-agent host: CPU/RAM-bound LLM serving + agent harness. Prototype on WSL2 NixOS, deploy to ac-box.",
-      "locked-flake-attr-path": "packages.x86_64-linux.stable-diffusion-cpp",
-      "derivation": "/nix/store/w47bzgc11g0fjnn7s209hnwyxmdlks2x-stable-diffusion-cpp-master-625-f683c88.drv",
-      "outputs": {
-        "dev": "/nix/store/ilmfdc3ki9qq1371q21rix2h906qmxcr-stable-diffusion-cpp-master-625-f683c88-dev",
-        "out": "/nix/store/iyb99qg14pwxxac6pyczij1lbnyv1yng-stable-diffusion-cpp-master-625-f683c88"
-      },
-      "output-names": [
-        "out",
-        "dev"
-      ],
-      "outputs-to-install": [
-        "out"
-      ],
-      "requested-outputs-to-install": [],
-      "package-system": "x86_64-linux",
-      "system": "x86_64-linux",
-      "name": "stable-diffusion-cpp-master-625-f683c88",
-      "pname": "stable-diffusion-cpp",
-      "version": "master-625-f683c88",
-      "description": "Stable Diffusion inference in pure C/C++",
       "licenses": [
         "MIT"
       ],

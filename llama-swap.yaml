@@ -2,8 +2,9 @@
 # on ac-box runs `llama-swap -config <checkout>/llama-swap.yaml` from the
 # flox environment (.flox/env/manifest.toml), and modules/agent-hub.nix no
 # longer generates one. Written by hand from the JSON the module used to
-# generate, read off the box on 17 Sep 2026: six models, same names, same
-# flags in the same order, same concurrency set; `${env.*}` macros where
+# generate, read off the box on 17 Sep 2026: same names, same flags in the
+# same order, same concurrency set (six models then; the three image
+# backends left 20 Sep 2026, homelab-b9u); `${env.*}` macros where
 # the module had store paths and host constants. hosts/ac-box/
 # configuration.nix still carries the per-model reasoning (which quant,
 # why these flags) beside values nothing reads any more; when it moves,
@@ -32,7 +33,6 @@ healthCheckTimeout: 600
 
 macros:
   llama_server: "${env.FLOX_ENV}/bin/llama-server"
-  sd_server: "${env.FLOX_ENV}/bin/sd-server"
   models: "${env.AGENT_HUB_MODELS}"
   threads: "${env.AGENT_HUB_THREADS}"
   ctx: "${env.AGENT_HUB_CTX}"
@@ -43,9 +43,6 @@ macros:
   # it every request carrying `tools` is a 500), --metrics (per-backend
   # /metrics on the loopback port; not scraped yet).
   llama_extra: "-rtr --flash-attn on --jinja --metrics"
-  # The image backends' shared tail: sd-server's UI page (nixpkgs ships
-  # none), served at the backend's root, so /upstream/<name>/ on :8100.
-  sd_ui: "--serve-html-path ${env.AGENT_HUB_ASSETS}/sd-ui.html"
 
 models:
   # Qwen3-Coder-Next, 80B total / 3B active MoE, Q8_0, four shards; shard 1
@@ -116,69 +113,17 @@ models:
     metadata:
       kind: embedding
 
-  # FLUX.2 klein, 4-step distilled, each with the Qwen3 text encoder it was
-  # trained against (the ORIGINAL 4B / 8B, not Z-Image's 2507 Instruct) and
-  # the FLUX.2 VAE. sd-server has no /health; /v1/models answers once the
-  # pipeline is loaded.
-  flux2-klein-4b:
-    cmd: >
-      ${sd_server} --diffusion-model ${models}/flux-2-klein-4b-Q8_0.gguf
-      --listen-ip 127.0.0.1 -t ${threads} ${sd_ui}
-      --vae ${models}/flux2-vae.safetensors --llm ${models}/Qwen3-4B-Q8_0.gguf
-      --steps 4 --cfg-scale 1.0 --diffusion-fa --listen-port ${PORT}
-    proxy: "http://127.0.0.1:${PORT}"
-    checkEndpoint: /v1/models
-    aliases: []
-    ttl: 0
-    name: flux2-klein-4b
-    description: "FLUX.2 klein 4B Q8_0 -- images, fastest here; also edits. Images tab only."
-    metadata:
-      kind: image
-
-  flux2-klein-9b:
-    cmd: >
-      ${sd_server} --diffusion-model ${models}/flux-2-klein-9b-Q8_0.gguf
-      --listen-ip 127.0.0.1 -t ${threads} ${sd_ui}
-      --vae ${models}/flux2-vae.safetensors --llm ${models}/Qwen3-8B-Q8_0.gguf
-      --steps 4 --cfg-scale 1.0 --diffusion-fa --listen-port ${PORT}
-    proxy: "http://127.0.0.1:${PORT}"
-    checkEndpoint: /v1/models
-    aliases: []
-    ttl: 0
-    name: flux2-klein-9b
-    description: "FLUX.2 klein 9B Q8_0 -- images, best quality here; also edits. Images tab only."
-    metadata:
-      kind: image
-
-  # Z-Image-Turbo: 8 steps, no CFG, its own Qwen3-4B-Instruct-2507 encoder
-  # and VAE.
-  z-image-turbo:
-    cmd: >
-      ${sd_server} --diffusion-model ${models}/z_image_turbo-Q8_0.gguf
-      --listen-ip 127.0.0.1 -t ${threads} ${sd_ui}
-      --vae ${models}/z_image-vae-ae.safetensors --llm ${models}/Qwen3-4B-Instruct-2507-Q8_0.gguf
-      --steps 8 --cfg-scale 1.0 --diffusion-fa --listen-port ${PORT}
-    proxy: "http://127.0.0.1:${PORT}"
-    checkEndpoint: /v1/models
-    aliases: []
-    ttl: 0
-    name: z-image-turbo
-    description: "Z-Image-Turbo Q8_0 -- images, ~4 min per 512x512 on this CPU. Images tab only."
-    metadata:
-      kind: image
-
-# The module's `concurrent = [ [ "coder" "instruct" "flux2-klein-9b" "embed" ] ]`:
-# those four may stay resident together; klein 4B and Z-Image are in no set
-# and so run alone, evicting everything else. Top-level `matrix:` is the
-# form the module writes and 224 reads (a backwards-compat alias of
+# The three may stay resident together (the module's `concurrent` set, minus
+# the image model it also held: the image backends left on 20 Sep 2026,
+# homelab-b9u -- generating evicted both 80Bs, a minute's reload and a cold
+# prompt cache for the next review, and the RAM is wanted for a second-
+# family reviewer and a utility model). Top-level `matrix:` is the form the
+# module wrote and 224 reads (a backwards-compat alias of
 # routing.router.settings.matrix).
 matrix:
   vars:
     v0: coder
     v1: embed
-    v2: flux2-klein-4b
-    v3: flux2-klein-9b
-    v4: instruct
-    v5: z-image-turbo
+    v2: instruct
   sets:
-    set0: "v0 & v4 & v3 & v1"
+    set0: "v0 & v2 & v1"
