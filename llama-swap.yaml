@@ -77,7 +77,15 @@ models:
   # The reviewer: gpt-oss-120b, 117B-A5.1B MoE, native MXFP4 (63 GB),
   # OpenAI lineage -- a model family that is NOT Qwen3-Next, so bead-loop's
   # stage-2 review is no longer the coder's twin checking the coder's
-  # work (homelab-e00, 20 Sep 2026). It REPLACES instruct: the box holds
+  # work (homelab-e00, 20 Sep 2026). Over the runner-up, GLM-4.5-Air
+  # (106B-A12B): 5.1B active vs 12B on a bandwidth-bound box is ~2.5x the
+  # decode rate, and the 4-bit MXFP4 is native, not a quant of a bf16.
+  # On five real diffs, same prompt, 20 Sep: it rejected the one whose
+  # acceptance criterion the diff itself admitted missing (instruct had
+  # approved it, calling the miss "insightful"), approved the two clean
+  # ones and caught an ADR-number inconsistency in one; its one false
+  # reject expected a two-repo change in one diff. Instruct: 1 of 5 in
+  # the right direction, two non-answers. ~12 tok/s end to end per review. It REPLACES instruct: the box holds
   # two 80-GiB-class models beside utility and embed, not three
   # (background.slice is 203 GiB; both Qwens alone were 162 GiB anonymous),
   # and the review call was most of what instruct did. The aliases are the
