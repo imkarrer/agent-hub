@@ -7,10 +7,10 @@
 # set by homelab's unit stub; modules/agent-hub.nix keeps the unit's
 # skeleton (name, user, restart policy, the landing page, qdrant) and
 # generates nothing that runs. The serving setup was read from the live
-# unit on 17 Sep 2026: llama-swap 224 on 127.0.0.1:8100 in front of six
-# backends, the three llama models on ik_llama.cpp 3bb386e and the three
-# image models on stable-diffusion.cpp with AVX2/FMA/F16C on. The model
-# table is llama-swap.yaml at the repo root.
+# unit on 17 Sep 2026: llama-swap 224 on 127.0.0.1:8100 in front of the
+# llama backends on ik_llama.cpp 3bb386e -- three, since the three image
+# models on stable-diffusion.cpp left on 20 Sep 2026 (homelab-b9u). The
+# model table is llama-swap.yaml at the repo root.
 #
 # What is NOT here, on purpose: the LAN address, the port's firewall rule,
 # the slice, AllowedCPUs/NUMAPolicy, User=, Restart= and the nginx landing
@@ -21,7 +21,7 @@ schema-version = "1.16.0"
 
 
 ## Install ------------------------------------------------------------
-## Three runtime packages and three for the scripts and CI.
+## Two runtime packages and three for the scripts and CI.
 ## ---------------------------------------------------------------------
 [install]
 # The engine. ikawrakow's fork, built from this repo's own nix/ik-llama-cpp.nix
@@ -38,11 +38,6 @@ schema-version = "1.16.0"
 # of ADR 0009 and also why the store path differs from the closure's:
 # same source, same options, a different stdenv rev.
 ik-llama-cpp.flake = "github:imkarrer/agent-hub#ik-llama-cpp"
-
-# The image backend. nixpkgs' stable-diffusion-cpp with the SIMD it forgets
-# (nix/stable-diffusion-cpp.nix says why: scalar matmuls, 570 s per image).
-# Same flake shape and the same two-commit rule as the engine.
-stable-diffusion-cpp.flake = "github:imkarrer/agent-hub#stable-diffusion-cpp"
 
 # The router. From the catalog, pinned to what the box runs; `flox show
 # llama-swap` lists 240 and 249 above it, and the top-level `matrix:` key
@@ -70,7 +65,7 @@ shellcheck.pkg-path = "shellcheck"
 
 
 ## Hook ---------------------------------------------------------------
-## The seven AGENT_HUB_* variables llama-swap.yaml and [services] read.
+## The six AGENT_HUB_* variables llama-swap.yaml and [services] read.
 ## Under a systemd unit the hook sets NONE of them; in a developer's shell
 ## it fills in values for a laptop. `: "${X:=v}"` keeps what the caller
 ## exported.
@@ -78,7 +73,7 @@ shellcheck.pkg-path = "shellcheck"
 ## Why the split (homelab-158.1 review, finding 1): this hook used to
 ## default every variable to the BOX's value -- 23 threads, /srv/agent-hub
 ## /models, :8100 -- so the stub in hosts/ac-box/configuration.nix could
-## have omitted any of the seven and the unit would still have come up
+## have omitted any of the six and the unit would still have come up
 ## right, by coincidence, with the omission invisible; and the same 23
 ## threads were wrong on every other machine. Now the unit's Environment=
 ## is the whole set of host facts, and a missing one is llama-swap's own
@@ -94,7 +89,7 @@ shellcheck.pkg-path = "shellcheck"
 ## runs this hook with a tree's defaults (homelab docs/flox-findings.md 1).
 ## CI's flox plugin runs in a container with no INVOCATION_ID; an agent
 ## that itself runs as a unit (homelab-158.6) must not leak it into jobs,
-## or scripts/ci_test.sh will be told to set the seven itself -- loudly.
+## or scripts/ci_test.sh will be told to set the six itself -- loudly.
 ## ---------------------------------------------------------------------
 [hook]
 on-activate = '''
@@ -121,14 +116,12 @@ on-activate = '''
     # llama-swap's loopback backends start here, off the box's 18100 for
     # the same reason.
     : "${AGENT_HUB_BACKEND_PORT:=18910}"
-    # The model table, and the directory holding sd-ui.html for the image
-    # backends: two files of this repo, at the checkout flox activated
+    # The model table: a file of this repo, at the checkout flox activated
     # (FLOX_ENV_PROJECT). A FloxHub generation carries the manifest and
     # lock only, which is why the box runs the tree at a sha (ADR 0009).
     : "${AGENT_HUB_SWAP_CONFIG:=$FLOX_ENV_PROJECT/llama-swap.yaml}"
-    : "${AGENT_HUB_ASSETS:=$FLOX_ENV_PROJECT/nix}"
     export AGENT_HUB_MODELS AGENT_HUB_THREADS AGENT_HUB_CTX AGENT_HUB_LISTEN \
-           AGENT_HUB_BACKEND_PORT AGENT_HUB_SWAP_CONFIG AGENT_HUB_ASSETS
+           AGENT_HUB_BACKEND_PORT AGENT_HUB_SWAP_CONFIG
   fi
 '''
 

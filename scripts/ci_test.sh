@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The tenant's own gate: the environment's binaries resolve, and llama-swap
 # loads llama-swap.yaml -- every ${env.*} macro set by the manifest's hook,
-# every model entry parsed -- and lists the six models the box serves. It
-# starts no backend (that needs the GGUFs, ~210 GB), so this proves the
+# every model entry parsed -- and lists the three models the box serves. It
+# starts no backend (that needs the GGUFs, ~170 GB), so this proves the
 # table and the wiring, not inference; scripts/smoke-test.sh is inference.
 #
 # Runs inside `flox activate` (CI's flox plugin, or hub-gates.sh locally),
@@ -26,10 +26,9 @@ export AGENT_HUB_CTX="${CI_CTX:-4096}"
 export AGENT_HUB_LISTEN="127.0.0.1:${CI_SWAP_PORT:-18999}"
 export AGENT_HUB_BACKEND_PORT="${CI_BACKEND_PORT:-18990}"
 export AGENT_HUB_SWAP_CONFIG="$PWD/llama-swap.yaml"
-export AGENT_HUB_ASSETS="$PWD/nix"
 
 echo "== binaries =="
-for b in llama-server sd-server llama-swap; do
+for b in llama-server llama-swap; do
   p=$(command -v "$b") || { echo "MISSING: $b"; exit 1; }
   case "$p" in "$FLOX_ENV"/*) echo "  $b -> $(readlink -f "$p")" ;;
     *) echo "  $b resolves outside the environment: $p"; exit 1 ;; esac
@@ -49,7 +48,7 @@ for _ in $(seq 1 20); do
 done
 [ -s "$log.models" ] || { echo "no answer from llama-swap:"; cat "$log"; exit 1; }
 
-want="coder embed flux2-klein-4b flux2-klein-9b instruct z-image-turbo"
+want="coder embed instruct"
 got=$(jq -r '.data[].id' "$log.models" | sort | tr '\n' ' ' | sed 's/ $//')
 rm -f "$log.models"
 if [ "$got" = "$want" ]; then

@@ -4,11 +4,11 @@
   services.agent-hub.llm.landingPage is on; everything else on the port is
   proxied to llama-swap. llama-swap's own /ui lists every model on every
   tab because it does not know what a model is; this page reads the kind
-  the module writes to models.json beside this file and shows chat
-  models, image models and embedding models apart, the first two linking
-  to that backend's own UI
-  (/upstream/<id>/: ik_llama.cpp's chat page, or sd-ui.html for images).
-  Opening one of those links is what loads the model.
+  the module writes to models.json beside this file and shows chat models
+  and embedding models apart, the chat ones linking to that backend's own
+  UI (/upstream/<id>/: ik_llama.cpp's chat page). Opening one of those
+  links is what loads the model. An Images tab (sd-ui.html in front of
+  stable-diffusion.cpp) was here until 20 Sep 2026, homelab-b9u.
 -->
 <html lang="en">
 <head>
@@ -37,8 +37,6 @@
 <p class="sub">One model is loaded at a time, except where the configuration lets several stay resident. Opening a model loads it — 20–60&nbsp;s if it was not already.</p>
 <h2>Chat</h2>
 <ul id="chat"><li>loading…</li></ul>
-<h2>Images</h2>
-<ul id="image"><li>loading…</li></ul>
 <h2>Embeddings</h2>
 <ul id="embedding"><li>loading…</li></ul>
 <p class="foot">
@@ -49,7 +47,7 @@
   (async () => {
     let models = [], running = new Set();
     try {
-      // { "<id>": { kind: "llama"|"image"|"embedding", description } }, written by the
+      // { "<id>": { kind: "llama"|"embedding", description } }, written by the
       // module from the same options as the llama-swap config. (llama-swap
       // documents per-model metadata in /v1/models; v224 returned null.)
       const kinds = await fetch('models.json').then(r => r.json());
@@ -58,13 +56,12 @@
       running = new Set((r.running || []).filter(x => x.state === 'ready').map(x => x.model));
     } catch (e) {
       document.getElementById('chat').innerHTML = `<li class="err">could not read the model list: ${e.message}</li>`;
-      document.getElementById('image').innerHTML = '';
       document.getElementById('embedding').innerHTML = '';
       return;
     }
-    const lists = { chat: [], image: [], embedding: [] };
+    const lists = { chat: [], embedding: [] };
     for (const m of models) {
-      const kind = m.kind === 'image' || m.kind === 'embedding' ? m.kind : 'chat';
+      const kind = m.kind === 'embedding' ? m.kind : 'chat';
       lists[kind].push(m);
     }
     for (const [kind, arr] of Object.entries(lists)) {

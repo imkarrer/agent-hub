@@ -22,13 +22,13 @@
     {
       # No nixosModules since 18 Sep 2026 (homelab-158.11): the box runs this
       # tenant from .flox/ (ADR 0009), and the unit skeleton lives in homelab
-      # (hosts/ac-box/tenants/agent-hub.nix). This flake exists for the two
-      # packages the manifest installs by `.flake` reference, and for
+      # (hosts/ac-box/tenants/agent-hub.nix). This flake exists for the
+      # package the manifest installs by `.flake` reference (ik_llama.cpp;
+      # stable-diffusion.cpp left with the image models, homelab-b9u), and for
       # `nix flake check` in CI.
       packages.${system} = {
         runner-image = import ./nix/runner-image.nix { inherit pkgs; };
         ik-llama-cpp = import ./nix/ik-llama-cpp.nix { inherit pkgs; };
-        stable-diffusion-cpp = import ./nix/stable-diffusion-cpp.nix { inherit pkgs; };
       };
 
       devShells.${system}.default = pkgs.mkShell {

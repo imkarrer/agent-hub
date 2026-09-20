@@ -10,12 +10,14 @@
 # downloaded by an uncommitted script in /root (found 13 Sep 2026 during the
 # gitops reconciliation). Since then it is the box's script. 14 Sep 2026 it
 # grew the second Qwen model and the image model when the server became
-# llama-swap in front of several backends.
+# llama-swap in front of several backends; 20 Sep 2026 the image models
+# left again (homelab-b9u: generating evicted both 80Bs, and the RAM is
+# wanted for a second reviewer and a utility model).
 #
 # Idempotent and resumable: curl -C - continues a partial file, and a complete
-# file is a no-op. ~210 GB in total; from Hugging Face on a 1 Gbit link that
+# file is a no-op. ~170 GB in total; from Hugging Face on a 1 Gbit link that
 # is about two hours the first time. Pass model names to fetch a subset:
-#   fetch-model.sh coder instruct z-image flux2-klein embed
+#   fetch-model.sh coder instruct embed
 set -euo pipefail
 
 DEST="${DEST:-/srv/agent-hub/models}"
@@ -45,30 +47,6 @@ instruct() {
   get Qwen/Qwen3-Next-80B-A3B-Instruct-GGUF Qwen3-Next-80B-A3B-Instruct-Q8_0.gguf
 }
 
-# Image generation: Z-Image-Turbo (6B DiT, 8 steps, no CFG) for
-# stable-diffusion.cpp, which needs the diffusion model, its Qwen3-4B text
-# encoder, and the FLUX autoencoder. black-forest-labs' own copy of the VAE
-# is gated; Comfy-Org's repackage of the same file is not. ~11 GB.
-z-image() {
-  get leejet/Z-Image-Turbo-GGUF z_image_turbo-Q8_0.gguf
-  get unsloth/Qwen3-4B-Instruct-2507-GGUF Qwen3-4B-Instruct-2507-Q8_0.gguf
-  get Comfy-Org/z_image_turbo split_files/vae/ae.safetensors z_image-vae-ae.safetensors
-}
-
-# FLUX.2 klein, 4B (Apache 2.0) and 9B (non-commercial licence), 4-step
-# distilled: the 4B is ~3x faster than Z-Image-Turbo at similar quality and
-# can edit images; the 9B is a quality step up at Z-Image speed. Each needs
-# its own Qwen3 text encoder (the ORIGINAL Qwen3-4B/8B, not the 2507
-# Instruct that Z-Image uses -- klein was trained against these) and the
-# FLUX.2 VAE, which is gated on BFL's repo and not on Comfy-Org's. ~28 GB.
-flux2-klein() {
-  get Comfy-Org/flux2-klein-4B split_files/vae/flux2-vae.safetensors flux2-vae.safetensors
-  get leejet/FLUX.2-klein-4B-GGUF flux-2-klein-4b-Q8_0.gguf
-  get unsloth/Qwen3-4B-GGUF Qwen3-4B-Q8_0.gguf
-  get leejet/FLUX.2-klein-9B-GGUF flux-2-klein-9b-Q8_0.gguf
-  get unsloth/Qwen3-8B-GGUF Qwen3-8B-Q8_0.gguf
-}
-
 # Embeddings: Qwen3-Embedding-0.6B, the small end of the same family the
 # chat models come from, 1024-dim vectors, 32k context, pooling stored in
 # the GGUF (last token). Served by llama-server in embedding mode and
@@ -77,6 +55,6 @@ embed() {
   get Qwen/Qwen3-Embedding-0.6B-GGUF Qwen3-Embedding-0.6B-Q8_0.gguf
 }
 
-for m in "${@:-coder instruct z-image flux2-klein embed}"; do "$m"; done
+for m in "${@:-coder instruct embed}"; do "$m"; done
 echo "=== $(date -Is) done"
 ls -la "$DEST"
