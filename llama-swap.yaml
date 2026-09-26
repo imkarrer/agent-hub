@@ -46,8 +46,29 @@ macros:
 
 models:
   # Qwen3-Coder-Next, 80B total / 3B active MoE, Q8_0, four shards; shard 1
-  # is named and llama.cpp finds the rest. --cache-ram 12288: the
-  # server-side prompt cache sized for ~five 32k agent conversations.
+  # is named and llama.cpp finds the rest.
+  #
+  # --ctx-checkpoints 0 --cache-ram 0: no rollback and no host-RAM prompt
+  # cache, because this build's rollback leaks another conversation into a
+  # reply. On 25 Sep 2026 bead-loop's researcher answered bl-iej.3.1 with
+  # inquire-platform inq-85h.3's files and tests (researched here 3 h
+  # earlier). opencode's 5-minute header timeout cut its slow prefill at
+  # 4m59.998s (15:08:56 in this unit's log, "context canceled"), and the
+  # retry reported 10,892 tokens cached, the aborted attempt's.
+  # For a hybrid model, a prompt that diverges from the slot's cache rolls
+  # back to a context checkpoint. At ik 3bb386e that partial restore frees
+  # the slot's attention cells and rebuilds them elsewhere without their
+  # K/V (src/llama.cpp ~10722-10770), and with two slots those are often
+  # cells another sequence wrote. A failed --cache-ram load fails open too:
+  # the cells go, the token list stays, and the recurrent layers keep the
+  # previous conversation's state. There is no fix upstream (ik HEAD 1aaf710,
+  # 25 Sep; ik#2433 open; mainline llama.cpp#27148 open, PR #27624). With
+  # checkpoints off, a divergence re-prefills from 0 (the "forcing full
+  # prompt re-processing" line). A conversation that only grows, each turn
+  # extending the last, still reuses its slot. The cost is the ~2k-token
+  # shared system prompt once per new conversation, and a full re-prefill
+  # after a compaction. The reviewer and utility keep their --cache-ram:
+  # one slot each and no recurrent layers, so neither path applies.
   #
   # Two slots (--parallel 2), each ${ctx} = 32768 of context: --ctx-size is
   # the TOTAL this build splits across slots, and a llama-swap macro cannot
@@ -64,7 +85,7 @@ models:
     cmd: >
       ${llama_server} --model ${models}/Qwen3-Coder-Next-Q8_0-00001-of-00004.gguf
       --host 127.0.0.1 --parallel 2 --ctx-size 65536 --threads ${threads}
-      ${llama_extra} --cache-ram 12288 --port ${PORT}
+      ${llama_extra} --ctx-checkpoints 0 --cache-ram 0 --port ${PORT}
     proxy: "http://127.0.0.1:${PORT}"
     checkEndpoint: /health
     aliases: []
