@@ -4,7 +4,8 @@
 # time. Reads the `timings` object llama-server puts in a non-streaming
 # response (llama-swap passes it through untouched), so it costs each box
 # exactly one request and needs nothing installed on it -- unlike
-# bench/bench.sh, which runs llama-bench on ac-box inside its cgroup fence.
+# bench/bench.sh, which runs llama-bench on ac-box itself, as a transient
+# systemd unit.
 #
 # Targets are "<base-url> <model>" pairs, one per line, in TARGETS (default:
 # this box and ac-box, both `coder`, the two ends of the README's split).
