@@ -20,7 +20,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 prompt_file=${1:-}
-TARGETS=${TARGETS:-$'http://127.0.0.1:8100 coder\nhttp://192.168.1.50:8100 coder'}
+TARGETS=${TARGETS:-$'http://127.0.0.1:8100 coder\nhttp://192.168.1.51:8100 coder'}
 MAX_TOKENS=${MAX_TOKENS:-128}
 
 if [ -n "$prompt_file" ]; then

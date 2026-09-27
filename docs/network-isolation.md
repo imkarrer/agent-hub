@@ -131,7 +131,7 @@ only) and standard, well-documented Docker/Linux networking behavior:
   bridge gateway address unless something explicitly denies that path. This
   is exactly what section 3's egress allowlist is for.
 - Reaching an **explicit LAN address** the host owns (`services.agent-hub.llm`
-  binds `192.168.1.50:8100`, never `0.0.0.0`) from a bridge-networked
+  binds `192.168.1.51:8100`, never `0.0.0.0`) from a bridge-networked
   container is standard, reliable kernel-level routing on rootful Docker
   (hairpin NAT to a locally-owned address) — unlike the rootless/slirp4netns
   case above, there's no userspace proxy in the way. This is well-trodden
@@ -250,7 +250,7 @@ iptables -L AGENT-HUB-RUNNER-EGRESS -n -v
 #    llama-server IS reachable.
 docker run --rm --network agent-hub-runner curlimages/curl -m3 http://127.0.0.1:9090/           # expect: fails (own loopback)
 docker run --rm --network agent-hub-runner curlimages/curl -m3 http://172.30.99.1:8181/          # expect: blocked by DROP
-docker run --rm --network agent-hub-runner curlimages/curl -m3 http://192.168.1.50:8100/v1/models # expect: succeeds
+docker run --rm --network agent-hub-runner curlimages/curl -m3 http://192.168.1.51:8100/v1/models # expect: succeeds
 ```
 
 Re-run step 4 after any change to `githubCidrs`, `subnet`, or the llama

@@ -12,8 +12,8 @@
 # in services.agent-hub.llm.models; override with MODEL if that changes.
 set -euo pipefail
 
-LLM="${LLM:-192.168.1.50:8100}"
-QDRANT="${QDRANT:-192.168.1.50:6333}"
+LLM="${LLM:-192.168.1.51:8100}"
+QDRANT="${QDRANT:-192.168.1.51:6333}"
 MODEL="${MODEL:-embed}"
 COLL="smoke-$$"
 

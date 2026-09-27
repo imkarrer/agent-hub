@@ -63,7 +63,7 @@ the box's version.
 The same environment at a sha, checked out to `/var/lib/agent-hub/env` by the pull
 unit, activated by the stub with the box's seven values, in `background.slice` with the
 cpuset and NUMA policy the host sets on the unit. `nix/index.html` (the landing page
-nginx serves at `http://192.168.1.50:8100/`) and qdrant on `:6333` still come from the
+nginx serves at `http://192.168.1.51:8100/`) and qdrant on `:6333` still come from the
 module. `hub-status` in homelab prints `agent-hub env: staged <sha> / applied <sha>
 (run <hash>)` beside the closure's rev pair.
 
@@ -284,7 +284,7 @@ An `opencode.json` provider entry per box:
 ```json
 "acbox": {
   "npm": "@ai-sdk/openai-compatible",
-  "options": { "baseURL": "http://192.168.1.50:8100/v1", "apiKey": "not-needed" },
+  "options": { "baseURL": "http://192.168.1.51:8100/v1", "apiKey": "not-needed" },
   "models": { "coder": { "tool_call": true, "limit": { "context": 32768, "output": 8192 } } }
 }
 ```
