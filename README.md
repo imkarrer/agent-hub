@@ -61,8 +61,11 @@ the box's version.
 ### What the box runs
 
 The same environment at a sha, checked out to `/var/lib/agent-hub/env` by the pull
-unit, activated by the stub with the box's seven values, in `background.slice` with the
-cpuset and NUMA policy the host sets on the unit. `nix/index.html` (the landing page
+unit, activated by the stub with the box's seven values, in `system.slice` with the
+cpuset and NUMA policy the host sets on the unit -- `AllowedCPUs=0-27`, every physical
+core and none of the SMT siblings, and `NUMAPolicy=interleave` over both nodes -- at 28
+threads. No slice fences it since homelab-ygc.13 (26 Sep 2026): agent-hub is the box's
+only tenant. `nix/index.html` (the landing page
 nginx serves at `http://192.168.1.51:8100/`) and qdrant on `:6333` still come from the
 module. `hub-status` in homelab prints `agent-hub env: staged <sha> / applied <sha>
 (run <hash>)` beside the closure's rev pair.
@@ -325,10 +328,12 @@ in the registry.
 
 **CPU note:** `services.agent-hub.llm.threads` defaults to `4`, not `0`, and homelab's stub
 passes it as `AGENT_HUB_THREADS`. `0` (like llama-server's own default of `-1`) means
-"auto-detect and use every core llama.cpp can see" -- on ac-box that's all 56 threads, which
-would starve the live race servers sharing the box. `4` is a safe, non-grabby placeholder
-(the manifest's hook uses the same number for a developer's shell), not a capacity plan: on
-ac-box, `homelab`'s tier system is what actually owns CPU allocation (shares of
-`homelab.host.capacity.cpuThreads`, applied as `CPUWeight`/`AllowedCPUs` on this tenant's
-slice, per that repo's "tiers are shares, not absolute indices" rule), and
-`hosts/ac-box/configuration.nix` sets `threads = 23` to match the fence.
+"auto-detect and use every core llama.cpp can see" -- on ac-box that's all 56 threads, two
+for each of the 28 physical cores the unit's cpuset allows. `4` is a safe, non-grabby
+placeholder (the manifest's hook uses the same number for a developer's shell), not a
+capacity plan: on ac-box the host owns that number, and `hosts/ac-box/configuration.nix`
+sets `threads = 28`, one per physical core -- the same cores its `AllowedCPUs=0-27` gives
+the unit. It was 23 until homelab-ygc.13 (26 Sep 2026), the cores `background.slice`'s
+fence granted while homelab's tier shares divided the box between tenants; agent-hub is
+its only tenant now, so there is no slice and no fence, and `scripts/bench/bench.sh`
+measures in the unit's placement, read off the unit on each run.
