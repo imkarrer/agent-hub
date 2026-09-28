@@ -290,6 +290,11 @@ An `opencode.json` provider entry per box:
 }
 ```
 
+`limit.context` is one slot's context: `${ctx}` in `llama-swap.yaml`, homelab's
+`llm.contextSize`, 32768 on ac-box. It is not coder's `--ctx-size`, which is the total
+the server splits evenly across its slots (`${ctx_total}` = `${ctx}` x `${parallel}`,
+65536 with two); a client told the total would plan for prompts no slot can hold.
+
 `scripts/compare.sh` sends one identical request to each server and prints prefill and
 generation tok/s from the `timings` llama-server returns -- one request per box, nothing
 run on it -- for the box-to-box comparison the table at the top of this README promises.
