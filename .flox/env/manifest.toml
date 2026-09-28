@@ -1,6 +1,6 @@
 # agent-hub as a flox environment (homelab ADR 0009, step 1).
 #
-# This file is the tenant: what runs behind :8100 on ac-box, spelled as
+# This file is the tenant: what runs behind :8100 on llm-box, spelled as
 # packages, variables and a command instead of Nix. Since 18 Sep 2026 it IS
 # what the box runs -- agent-hub-llm.service's ExecStart is `flox activate
 # -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml`,
@@ -14,7 +14,7 @@
 #
 # What is NOT here, on purpose: the LAN address, the port's firewall rule,
 # the slice, AllowedCPUs/NUMAPolicy, User=, Restart= and the nginx landing
-# page and qdrant units. Those are host facts (hosts/ac-box/{tenants,
+# page and qdrant units. Those are host facts (hosts/llm-box/{tenants,
 # configuration}.nix) and stay in the closure's unit stub -- ADR 0009 says
 # the manifest has no vocabulary for them and invents none.
 schema-version = "1.16.0"
@@ -72,7 +72,7 @@ shellcheck.pkg-path = "shellcheck"
 ##
 ## Why the split (homelab-158.1 review, finding 1): this hook used to
 ## default every variable to the BOX's value -- 23 threads, /srv/agent-hub
-## /models, :8100 -- so the stub in hosts/ac-box/configuration.nix could
+## /models, :8100 -- so the stub in hosts/llm-box/configuration.nix could
 ## have omitted any of them and the unit would still have come up
 ## right, by coincidence, with the omission invisible; and the same 23
 ## threads were wrong on every other machine. Now the unit's Environment=
@@ -83,8 +83,8 @@ shellcheck.pkg-path = "shellcheck"
 ##   'AGENT_HUB_THREADS' is not set"
 ##
 ## "Under a unit" is INVOCATION_ID, which systemd sets in every service
-## process it starts (systemd.exec(5)); the live llama-swap on ac-box
-## carries it (18 Sep 2026, /proc/<MainPID>/environ). The pull unit's warm
+## process it starts (systemd.exec(5)); the live llama-swap on llm-box
+## carries it (28 Sep 2026, /proc/<MainPID>/environ). The pull unit's warm
 ## (`flox activate -d <dir> -- true`) is under a unit too, so it no longer
 ## runs this hook with a tree's defaults (homelab docs/flox-findings.md 1).
 ## CI's flox plugin runs in a container with no INVOCATION_ID; an agent
@@ -95,7 +95,7 @@ shellcheck.pkg-path = "shellcheck"
 on-activate = '''
   if [ -z "${INVOCATION_ID:-}" ]; then
     # A developer's shell, on a machine that is not the box. Every value
-    # here is deliberately NOT ac-box's (those are hosts/ac-box/
+    # here is deliberately NOT llm-box's (those are hosts/llm-box/
     # configuration.nix's, passed by the stub): enough to load the table
     # and run one small model beside a NixOS unit on the same machine.
     #
