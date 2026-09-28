@@ -1,5 +1,5 @@
 {
-  description = "Local coding-agent host: CPU/RAM-bound LLM serving + agent harness. Prototype on WSL2 NixOS, deploy to ac-box.";
+  description = "Local coding-agent host: CPU/RAM-bound LLM serving + agent harness. Prototype on WSL2 NixOS, deploy to llm-box.";
 
   inputs = {
     # Pinned to match the deploy host (ac-box, nixos-26.05), not unstable --
@@ -22,7 +22,7 @@
     {
       # No nixosModules since 18 Sep 2026 (homelab-158.11): the box runs this
       # tenant from .flox/ (ADR 0009), and the unit skeleton lives in homelab
-      # (hosts/ac-box/tenants/agent-hub.nix). This flake exists for the
+      # (hosts/llm-box/tenants/agent-hub.nix). This flake exists for the
       # package the manifest installs by `.flake` reference (ik_llama.cpp;
       # stable-diffusion.cpp left with the image models, homelab-b9u), and for
       # `nix flake check` in CI.

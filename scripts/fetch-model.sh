@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch every model ac-box serves, into the directory homelab's
+# Fetch every model llm-box serves, into the directory homelab's
 # configuration.nix points the model server at. One entry per served model,
 # named once here and referenced from homelab's `services.agent-hub.llm.models`
 # by the same file names -- if a name changes in one place it changes in the
@@ -32,7 +32,7 @@ get() { # get <repo> <path-in-repo> [local-name]
 }
 
 # The coding agent. The choice of this over the larger Qwen3-Coder-480B is
-# argued in homelab hosts/ac-box/configuration.nix. Four shards, ~85 GB.
+# argued in homelab hosts/llm-box/configuration.nix. Four shards, ~85 GB.
 coder() {
   local q=Qwen3-Coder-Next-Q8_0
   for i in 1 2 3 4; do

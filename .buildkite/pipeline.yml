@@ -1,4 +1,4 @@
-# GitHub push -> this file, on the ac-box agent (queue=self). Source checks
+# GitHub push -> this file, on arcade-box's agent (queue=self). Source checks
 # only: nothing here touches the box, and nothing here can -- this tree
 # reaches ac-box as a flake input of homelab today, and as a flox
 # environment once ADR 0009's deploy edge exists (homelab-158.3).

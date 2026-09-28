@@ -4,7 +4,7 @@
 # collection, search it with a fourth sentence, and check the nearest hit is
 # the one a person would pick. Leaves nothing behind. Needs curl and jq.
 #
-#   vectors-smoke.sh                       # ac-box's addresses
+#   vectors-smoke.sh                       # llm-box's addresses
 #   LLM=127.0.0.1:8100 QDRANT=127.0.0.1:6333 vectors-smoke.sh
 #
 # The first call loads the embedding model if llama-swap does not have it up

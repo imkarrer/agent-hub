@@ -13,7 +13,7 @@ either; it has an RTX 4080 that WSL2 exposes, found 16 Sep 2026 -- see the table
 
 Two machines, two jobs, same as the arcade project's Nix module split:
 
-| | This dev machine (WSL2 `NixOS`) | ac-box (hp 840z) |
+| | This dev machine (WSL2 `NixOS`) | llm-box (HP Z840) |
 | --- | --- | --- |
 | RAM available | ~30GB (WSL2 default cap, raisable via `.wslconfig`) | 256GB |
 | GPU | RTX 4080, 16 GB, via `/dev/dxg` (CUDA build of llama.cpp b11007) | none |
@@ -26,13 +26,13 @@ not global `allowedTCPPorts`.
 
 ## What this repo is: the environment is the tenant, the module is the skeleton
 
-Since homelab ADR 0009 step 1 (18 Sep 2026) the model server on ac-box runs from this
+Since homelab ADR 0009 step 1 (18 Sep 2026) the model server on llm-box runs from this
 repo's **flox environment**, not from Nix:
 
-| | The environment (`.flox/env/manifest.toml`, `llama-swap.yaml`) | The unit skeleton, in homelab (`hosts/ac-box/tenants/agent-hub.nix`; `modules/agent-hub.nix` was deleted 18 Sep 2026) |
+| | The environment (`.flox/env/manifest.toml`, `llama-swap.yaml`) | The unit skeleton, in homelab (`hosts/llm-box/tenants/agent-hub.nix`; `modules/agent-hub.nix` was deleted 18 Sep 2026) |
 | --- | --- | --- |
 | What it is | The tenant: the packages (ik_llama.cpp, llama-swap 224), the four-model table, the command. A tenant author writes no Nix. | The unit's skeleton in the closure: the `agent-hub` user, `/srv/agent-hub` and `/var/lib/agent-hub`, the firewall rule, `agent-hub-llm.service`'s name / user / restart policy / ordering, nginx (the landing page) and qdrant. It generates nothing that runs a model. |
-| Who runs it | A developer: `flox activate`. The box: `agent-hub-llm.service`'s `ExecStart=flox activate -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml -listen 127.0.0.1:8100`, set by homelab's unit stub (`homelab.tenants.agent-hub.environment` in `hosts/ac-box/configuration.nix`). | homelab imports it as a flake input, as before, until `homelab-158.11` makes the stub the whole unit. Without the stub the unit exists and fails on start with a message naming the stub -- never a unit that quietly serves the old way. |
+| Who runs it | A developer: `flox activate`. The box: `agent-hub-llm.service`'s `ExecStart=flox activate -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml -listen 127.0.0.1:8100`, set by homelab's unit stub (`homelab.tenants.agent-hub.environment` in `hosts/llm-box/configuration.nix`). | homelab imports it as a flake input, as before, until `homelab-158.11` makes the stub the whole unit. Without the stub the unit exists and fails on start with a message naming the stub -- never a unit that quietly serves the old way. |
 | How a change reaches the box | Push to `main`; CI (`.buildkite/pipeline.yml`) proves the table loads and publishes the `buildkite/agent-hub` commit status; the box has no CI agent (homelab ADR 0010), so its `agent-hub-environment-poll` stages a green sha within ten minutes (homelab-ygc.14) and `agent-hub-environment-pull` checks it out, warms it once online, restarts the unit. No closure switch. | A `flake.lock` bump in homelab (`bump-lock`), a closure switch at 03:30 -- only when a host-side thing changes: a directory, the landing page, qdrant. |
 | Host facts | Eight `AGENT_HUB_*` variables the unit's `Environment=` sets: models dir, threads, ctx, coder's slot count and its total ctx (ctx x slots), listen address, backend port, the table's path. The manifest's hook sets **none** of them under a unit; a missing one is llama-swap's refusal at load, `environment variable 'X' is not set`. | Declared as options (`llm.threads`, `llm.contextSize`, `llm.parallel`, `llm.port`, `llm.landingPage`, `lanAddress`, `dataDir`, `llm.backendPort`) that homelab's stub reads from, so a value has one spelling. Table fields ac-box still sets (`engine`, `extraArgs`, `concurrent`, a model's `modelPath`...) are declared but read by nothing; `llama-swap.yaml` is the table. |
 
@@ -50,7 +50,7 @@ Outside a systemd unit the manifest's hook fills in **laptop** values -- 4 threa
 `127.0.0.1:18900`, backends from 18910, the table from the checkout -- chosen so a
 small model runs beside a NixOS unit
 on the same machine, and so that none of them is the box's (23 threads on a laptop was
-the earlier mistake; the box's values live in `hosts/ac-box/configuration.nix` and
+the earlier mistake; the box's values live in `hosts/llm-box/configuration.nix` and
 arrive by the stub, never by default). Export any `AGENT_HUB_*` to override.
 `flox activate --start-services` runs the same command under process-compose for an
 interactive session; it is the developer's shape, not the unit's (the manifest says
@@ -97,12 +97,12 @@ that don't hold up yet:
 | --- | --- | --- |
 | Sandboxed execution -- container or VM, never as the `agent-hub` user on the host | **Met** | `scripts/run-task.sh` runs aider inside a Docker container (`nix/runner-image.nix`) built from a deliberately narrow image (no compilers, no package managers), with `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, `--memory 4g`, and a non-root `--user` (see below for the rootless-Docker exception). The host process (`agent-hub-run-task`) only launches and reaps the container; the model never runs code as the `agent-hub` host user. `services.agent-hub.runner.network.mode` now defaults to `"bridge"`: a dedicated Docker network plus a `DOCKER-USER` iptables allowlist scoped to `llama-server` + `github.com`, replacing the old unconditional `--network host` (see [`docs/network-isolation.md`](docs/network-isolation.md) for the full analysis, including why that fix holds on ac-box's actual rootful Docker but not on this dev box's rootless one -- the dev box still uses `network.mode = "host"` deliberately, gated behind an explicit `singleTenantHost` acknowledgement precisely because it is not a shared host). |
 | GitHub credentials scoped to specific repos, stored via `sops-nix` | **Half met** | Repo scoping exists and is enforced twice: the PAT itself should be a fine-grained token scoped to one repo (a human/operator responsibility, not something Nix can verify), and `services.agent-hub.runner.allowedRepos` is a second, defense-in-depth allowlist the generated `agent-hub-run-task` script checks before it will touch a repo (module assertion also requires `allowedRepos != []`). **But**: `sops-nix` storage is not done. `githubTokenFile` is a plain option of type `nullOr path` -- at invocation time it just needs to point at a readable file; nothing decrypts it via `sops-nix`. 2a's proof-out used a fine-grained PAT for one disposable scratch repo, stored outside git but still a plain file. Wiring real `sops-nix` secret storage is explicitly still open work. |
-| Human approval before PR merge | **Met** | `scripts/run-task.sh` always runs `gh pr create --draft`; there is no `gh pr merge`, no auto-merge flag, and no code path in this repo that can merge a PR. Merging is a human action outside this tool, same as `nixos-rebuild switch` is a human action on ac-box. |
+| Human approval before PR merge | **Met** | `scripts/run-task.sh` always runs `gh pr create --draft`; there is no `gh pr merge`, no auto-merge flag, and no code path in this repo that can merge a PR. Merging is a human action outside this tool, same as `nixos-rebuild switch` is a human action on llm-box. |
 
 None of this has been deployed anywhere -- there is no host importing
-`nixosModules.agent-hub` with `runner.enable = true` yet, ac-box included. "Proven out on
+`nixosModules.agent-hub` with `runner.enable = true` yet, llm-box included. "Proven out on
 this dev box" means: manually invoked on the WSL2 prototype, against a small model,
-by a human watching it run. It has not run unattended, has not run on ac-box, and has
+by a human watching it run. It has not run unattended, has not run on the Z840, and has
 no systemd service or timer triggering it -- `services.agent-hub.runner` only installs
 an `agent-hub-run-task` command for someone to run by hand.
 
@@ -144,7 +144,7 @@ backend, not spare parallelism to coordinate).
 - End-to-end timing for a trivial one-file task (clone, one aider round-trip, test,
   push, draft PR) on the WSL2 box: **~90-100 seconds**, almost entirely the LLM call.
   Multi-file or multi-turn tasks will scale up from there; this is the number to compare
-  against once ac-box's bigger model is in the loop.
+  against once llm-box's bigger model is in the loop.
 
 **2b (also proven out on this dev box): folded into the module.**
 `services.agent-hub.runner` (in `modules/agent-hub.nix`) now wraps `run-task.sh` as an
@@ -229,16 +229,16 @@ GITHUB_TOKEN=<fine-grained PAT scoped to one repo> \
 
 Models are never committed -- `models/` and `*.gguf` are gitignored, same rule
 `home-arcade` applies to ROMs. See [docs/models.md](docs/models.md) (once written) for
-which GGUF to pull for the WSL2 prototype vs. the ac-box deploy.
+which GGUF to pull for the WSL2 prototype vs. the llm-box deploy.
 
-**Throughput on ac-box is a measured thing, not a guess:** [docs/prefill-tuning.md](docs/prefill-tuning.md)
+**Throughput on llm-box is a measured thing, not a guess:** [docs/prefill-tuning.md](docs/prefill-tuning.md)
 is the 14 Sep 2026 sweep that took the deployed server from 17 to 140 tok/s prefill (4.5 to
 13.3 generation) with no model change -- NUMA placement, the cgroup cpuset, and ik_llama.cpp
 (`services.agent-hub.llm.engine = "ik-llama-cpp"`). `scripts/bench/` is the harness; re-run it
 before trusting any number in this README or in homelab's routing skill against a new build.
 
 **Several models, one port.** `llama-swap.yaml` puts llama-swap on the port with one backend
-per entry -- ac-box serves `coder` (Qwen3-Coder-Next), `reviewer` (gpt-oss-120b MXFP4, the
+per entry -- llm-box serves `coder` (Qwen3-Coder-Next), `reviewer` (gpt-oss-120b MXFP4, the
 second-family review call and inquire-platform's scorer -- it replaced Qwen3-Next-Instruct on
 20 Sep 2026, homelab-e00, and carries the `claude-*` aliases inquire-platform's Anthropic
 SDK hard-codes, plus `instruct` while callers move), `embed`
@@ -278,7 +278,7 @@ all found 16 Sep 2026 pointing opencode at both boxes:
   that literal, so every call came back as plain content. Mainline llama.cpp newer than b9190
   has a dedicated Qwen3-Coder parser (grammar armed on `<function=<name>>`, `<tool_call>`
   optional); the WSL2 box serves `coder` with b11007 for that reason, built with this CPU's
-  ISA named explicitly (nixpkgs strips `-march=native`) and with CUDA. On ac-box the
+  ISA named explicitly (nixpkgs strips `-march=native`) and with CUDA. On llm-box the
   question does not arise: Qwen3-Coder-Next opens every call with `<tool_call>` (raw
   `/completion` on the box, 4 of 4 samples), and after `--jinja` landed (homelab 7e095ae)
   opencode ran a tool call through it end to end.
@@ -294,7 +294,7 @@ An `opencode.json` provider entry per box:
 ```
 
 `limit.context` is one slot's context: `${ctx}` in `llama-swap.yaml`, homelab's
-`llm.contextSize`, 32768 on ac-box. It is not coder's `--ctx-size`, which is the total
+`llm.contextSize`, 32768 on llm-box. It is not coder's `--ctx-size`, which is the total
 the server splits evenly across its slots (`${ctx_total}` = `${ctx}` x `${parallel}`,
 65536 with two); a client told the total would plan for prompts no slot can hold.
 
@@ -334,10 +334,10 @@ in the registry.
 
 **CPU note:** `services.agent-hub.llm.threads` defaults to `4`, not `0`, and homelab's stub
 passes it as `AGENT_HUB_THREADS`. `0` (like llama-server's own default of `-1`) means
-"auto-detect and use every core llama.cpp can see" -- on ac-box that's all 56 threads, two
+"auto-detect and use every core llama.cpp can see" -- on llm-box that's all 56 threads, two
 for each of the 28 physical cores the unit's cpuset allows. `4` is a safe, non-grabby
 placeholder (the manifest's hook uses the same number for a developer's shell), not a
-capacity plan: on ac-box the host owns that number, and `hosts/ac-box/configuration.nix`
+capacity plan: on llm-box the host owns that number, and `hosts/llm-box/configuration.nix`
 sets `threads = 28`, one per physical core -- the same cores its `AllowedCPUs=0-27` gives
 the unit. It was 23 until homelab-ygc.13 (26 Sep 2026), the cores `background.slice`'s
 fence granted while homelab's tier shares divided the box between tenants; agent-hub is

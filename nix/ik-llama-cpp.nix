@@ -10,8 +10,8 @@
 # (the iqk kernels are the point; OpenBLAS would take the f32 matmuls away
 # from them) and minus curl (the server never fetches models). GGML_NATIVE is
 # OFF there, so this is a generic AVX2/FMA/F16C binary, not -march=native of
-# whatever built it -- ac-box is Broadwell (E5-2680 v4) with no AVX-512, and
-# the WSL2 box that usually builds this is something else entirely.
+# whatever built it -- the Z840 is Broadwell (E5-2680 v4) with no AVX-512,
+# and the WSL2 box that usually builds this is something else entirely.
 #
 # Pinned by commit, not tag: the fork does not cut releases. Bump REV and the
 # hash together; qwen3next support (this model's hybrid Gated-DeltaNet +

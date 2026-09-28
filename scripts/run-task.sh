@@ -29,7 +29,7 @@ TEST_CMD="${4:-}"
 : "${LLAMA_BASE_URL:=http://172.18.37.247:8091/v1}"
 # The "openai/" prefix picks litellm's OpenAI-compatible client; what goes on
 # the wire is the part after it. A bare llama-server ignores it; llama-swap
-# (ac-box) routes on it, so it must name a configured model -- "coder" is
+# (llm-box) routes on it, so it must name a configured model -- "coder" is
 # the coding model in homelab's services.agent-hub.llm.models.
 : "${LLAMA_MODEL:=openai/coder}"
 # llama-server doesn't require auth, but litellm (which aider uses under

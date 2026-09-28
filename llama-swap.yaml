@@ -1,5 +1,5 @@
 # The model table behind :8100 -- THE table, since 18 Sep 2026: the unit
-# on ac-box runs `llama-swap -config <checkout>/llama-swap.yaml` from the
+# on llm-box runs `llama-swap -config <checkout>/llama-swap.yaml` from the
 # flox environment (.flox/env/manifest.toml), and modules/agent-hub.nix no
 # longer generates one. Written by hand from the JSON the module used to
 # generate, read off the box on 17 Sep 2026: same names, same flags in the
@@ -27,7 +27,7 @@ startPort: ${env.AGENT_HUB_BACKEND_PORT}
 
 # How long a backend may take to answer its checkEndpoint after start.
 # llama-swap's default is 120 s; a cold 85 GB model off NVMe plus ik's
-# run-time repack is under a minute on ac-box, but a box under memory
+# run-time repack is under a minute on llm-box, but a box under memory
 # pressure can take longer and a timeout here is a spurious "failed to load".
 healthCheckTimeout: 600
 
@@ -42,7 +42,7 @@ macros:
   parallel: "${env.AGENT_HUB_PARALLEL}"
   ctx_total: "${env.AGENT_HUB_CTX_TOTAL}"
   # The module's `llm.extraArgs`, appended to every llama backend after the
-  # flags it emits. hosts/ac-box/configuration.nix argues each one: -rtr
+  # flags it emits. hosts/llm-box/configuration.nix argues each one: -rtr
   # (repack at load; disables mmap so the model is anonymous memory under
   # the unit's NUMAPolicy), --flash-attn on, --jinja (tool calls; without
   # it every request carrying `tools` is a 500), --metrics (per-backend
@@ -82,7 +82,7 @@ models:
   # macro cannot multiply, so the product is taken where both factors are
   # set: homelab's stub renders AGENT_HUB_CTX_TOTAL = llm.contextSize *
   # llm.parallel beside AGENT_HUB_CTX and AGENT_HUB_PARALLEL
-  # (hosts/ac-box/configuration.nix), one spelling of each number. Change
+  # (hosts/llm-box/configuration.nix), one spelling of each number. Change
   # the slot count or a slot's size there, not here. A client's context
   # limit is one slot, ${ctx} -- the README's opencode entry says 32768.
   # One slot was the bottleneck on 18 Sep 2026 (homelab-7bu): with a

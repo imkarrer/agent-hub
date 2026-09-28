@@ -4,17 +4,17 @@
 # time. Reads the `timings` object llama-server puts in a non-streaming
 # response (llama-swap passes it through untouched), so it costs each box
 # exactly one request and needs nothing installed on it -- unlike
-# bench/bench.sh, which runs llama-bench on ac-box itself, as a transient
+# bench/bench.sh, which runs llama-bench on llm-box itself, as a transient
 # systemd unit.
 #
 # Targets are "<base-url> <model>" pairs, one per line, in TARGETS (default:
-# this box and ac-box, both `coder`, the two ends of the README's split).
+# this box and llm-box, both `coder`, the two ends of the README's split).
 # The prompt defaults to ~1.5k tokens of this repo's module, which is a
 # realistic size for one agent turn's fresh context; pass a file for another.
 # A server's prompt cache makes a repeated identical prompt look free
 # (prompt_n drops to 1), so the prompt carries a nonce and is never cached.
 #
-# A loaded model is swapped in on first use (20-60 s on ac-box, similar
+# A loaded model is swapped in on first use (20-60 s on llm-box, similar
 # here) and that time lands in "wall", not in the tok/s columns.
 # Requires: curl, jq (nix develop provides them).
 set -euo pipefail
