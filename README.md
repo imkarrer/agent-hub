@@ -34,7 +34,7 @@ repo's **flox environment**, not from Nix:
 | What it is | The tenant: the packages (ik_llama.cpp, llama-swap 224), the four-model table, the command. A tenant author writes no Nix. | The unit's skeleton in the closure: the `agent-hub` user, `/srv/agent-hub` and `/var/lib/agent-hub`, the firewall rule, `agent-hub-llm.service`'s name / user / restart policy / ordering, nginx (the landing page) and qdrant. It generates nothing that runs a model. |
 | Who runs it | A developer: `flox activate`. The box: `agent-hub-llm.service`'s `ExecStart=flox activate -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml -listen 127.0.0.1:8100`, set by homelab's unit stub (`homelab.tenants.agent-hub.environment` in `hosts/ac-box/configuration.nix`). | homelab imports it as a flake input, as before, until `homelab-158.11` makes the stub the whole unit. Without the stub the unit exists and fails on start with a message naming the stub -- never a unit that quietly serves the old way. |
 | How a change reaches the box | Push to `main`; CI (`.buildkite/pipeline.yml`) proves the table loads and stages the sha; the box's `agent-hub-environment-pull` checks it out, warms it once online, restarts the unit. No closure switch. | A `flake.lock` bump in homelab (`bump-lock`), a closure switch at 03:30 -- only when a host-side thing changes: a directory, the landing page, qdrant. |
-| Host facts | Six `AGENT_HUB_*` variables the unit's `Environment=` sets: models dir, threads, ctx, listen address, backend port, the table's path. The manifest's hook sets **none** of them under a unit; a missing one is llama-swap's refusal at load, `environment variable 'X' is not set`. | Declared as options (`llm.threads`, `llm.contextSize`, `llm.port`, `llm.landingPage`, `lanAddress`, `dataDir`, `llm.backendPort`) that homelab's stub reads from, so a value has one spelling. Table fields ac-box still sets (`engine`, `extraArgs`, `concurrent`, a model's `modelPath`...) are declared but read by nothing; `llama-swap.yaml` is the table. |
+| Host facts | Eight `AGENT_HUB_*` variables the unit's `Environment=` sets: models dir, threads, ctx, coder's slot count and its total ctx (ctx x slots), listen address, backend port, the table's path. The manifest's hook sets **none** of them under a unit; a missing one is llama-swap's refusal at load, `environment variable 'X' is not set`. | Declared as options (`llm.threads`, `llm.contextSize`, `llm.parallel`, `llm.port`, `llm.landingPage`, `lanAddress`, `dataDir`, `llm.backendPort`) that homelab's stub reads from, so a value has one spelling. Table fields ac-box still sets (`engine`, `extraArgs`, `concurrent`, a model's `modelPath`...) are declared but read by nothing; `llama-swap.yaml` is the table. |
 
 ### What a developer runs
 
@@ -46,8 +46,9 @@ curl -s http://127.0.0.1:18900/v1/models | jq -r '.data[].id'
 ```
 
 Outside a systemd unit the manifest's hook fills in **laptop** values -- 4 threads,
-8192 ctx, `$PWD/models`, `127.0.0.1:18900`, backends from 18910, the table from the
-checkout -- chosen so a small model runs beside a NixOS unit
+8192 ctx, one coder slot (the total, ctx x slots, derived), `$PWD/models`,
+`127.0.0.1:18900`, backends from 18910, the table from the checkout -- chosen so a
+small model runs beside a NixOS unit
 on the same machine, and so that none of them is the box's (23 threads on a laptop was
 the earlier mistake; the box's values live in `hosts/ac-box/configuration.nix` and
 arrive by the stub, never by default). Export any `AGENT_HUB_*` to override.

@@ -23,6 +23,10 @@ cd "$(dirname "$0")/.."
 export AGENT_HUB_MODELS="${CI_MODELS:-$PWD/models}"
 export AGENT_HUB_THREADS="${CI_THREADS:-2}"
 export AGENT_HUB_CTX="${CI_CTX:-4096}"
+# coder's slots and its --ctx-size across them; the total is the product,
+# as homelab's stub renders it on the box.
+export AGENT_HUB_PARALLEL="${CI_PARALLEL:-2}"
+export AGENT_HUB_CTX_TOTAL="$((AGENT_HUB_CTX * AGENT_HUB_PARALLEL))"
 export AGENT_HUB_LISTEN="127.0.0.1:${CI_SWAP_PORT:-18999}"
 export AGENT_HUB_BACKEND_PORT="${CI_BACKEND_PORT:-18990}"
 export AGENT_HUB_SWAP_CONFIG="$PWD/llama-swap.yaml"

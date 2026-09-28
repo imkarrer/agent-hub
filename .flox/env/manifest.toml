@@ -65,7 +65,7 @@ shellcheck.pkg-path = "shellcheck"
 
 
 ## Hook ---------------------------------------------------------------
-## The six AGENT_HUB_* variables llama-swap.yaml and [services] read.
+## The eight AGENT_HUB_* variables llama-swap.yaml and [services] read.
 ## Under a systemd unit the hook sets NONE of them; in a developer's shell
 ## it fills in values for a laptop. `: "${X:=v}"` keeps what the caller
 ## exported.
@@ -73,7 +73,7 @@ shellcheck.pkg-path = "shellcheck"
 ## Why the split (homelab-158.1 review, finding 1): this hook used to
 ## default every variable to the BOX's value -- 23 threads, /srv/agent-hub
 ## /models, :8100 -- so the stub in hosts/ac-box/configuration.nix could
-## have omitted any of the six and the unit would still have come up
+## have omitted any of the eight and the unit would still have come up
 ## right, by coincidence, with the omission invisible; and the same 23
 ## threads were wrong on every other machine. Now the unit's Environment=
 ## is the whole set of host facts, and a missing one is llama-swap's own
@@ -89,7 +89,7 @@ shellcheck.pkg-path = "shellcheck"
 ## runs this hook with a tree's defaults (homelab docs/flox-findings.md 1).
 ## CI's flox plugin runs in a container with no INVOCATION_ID; an agent
 ## that itself runs as a unit (homelab-158.6) must not leak it into jobs,
-## or scripts/ci_test.sh will be told to set the six itself -- loudly.
+## or scripts/ci_test.sh will be told to set the eight itself -- loudly.
 ## ---------------------------------------------------------------------
 [hook]
 on-activate = '''
@@ -109,6 +109,12 @@ on-activate = '''
     # --ctx-size for the chat models (the box says 32768; the embedding
     # model has its own 8192 in llama-swap.yaml regardless).
     : "${AGENT_HUB_CTX:=8192}"
+    # coder's slots, and its --ctx-size across them (llama-swap.yaml's
+    # `parallel` and `ctx_total`). One slot on a laptop (the box says 2).
+    # The total is derived as homelab derives the box's, ctx * parallel,
+    # so exporting either factor moves it too.
+    : "${AGENT_HUB_PARALLEL:=1}"
+    : "${AGENT_HUB_CTX_TOTAL:=$((AGENT_HUB_CTX * AGENT_HUB_PARALLEL))}"
     # Where llama-swap listens: loopback, and not :8100, which the NixOS
     # unit on the WSL box holds (the box says 127.0.0.1:8100, nginx in
     # front). scripts/ci_test.sh sets its own 18999 to sit beside this.
@@ -120,8 +126,9 @@ on-activate = '''
     # (FLOX_ENV_PROJECT). A FloxHub generation carries the manifest and
     # lock only, which is why the box runs the tree at a sha (ADR 0009).
     : "${AGENT_HUB_SWAP_CONFIG:=$FLOX_ENV_PROJECT/llama-swap.yaml}"
-    export AGENT_HUB_MODELS AGENT_HUB_THREADS AGENT_HUB_CTX AGENT_HUB_LISTEN \
-           AGENT_HUB_BACKEND_PORT AGENT_HUB_SWAP_CONFIG
+    export AGENT_HUB_MODELS AGENT_HUB_THREADS AGENT_HUB_CTX AGENT_HUB_PARALLEL \
+           AGENT_HUB_CTX_TOTAL AGENT_HUB_LISTEN AGENT_HUB_BACKEND_PORT \
+           AGENT_HUB_SWAP_CONFIG
   fi
 '''
 

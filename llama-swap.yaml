@@ -36,6 +36,11 @@ macros:
   models: "${env.AGENT_HUB_MODELS}"
   threads: "${env.AGENT_HUB_THREADS}"
   ctx: "${env.AGENT_HUB_CTX}"
+  # coder's slot count, and its --ctx-size: the total across those slots,
+  # ctx * parallel, multiplied by whatever sets these (the comment above
+  # coder says why not here).
+  parallel: "${env.AGENT_HUB_PARALLEL}"
+  ctx_total: "${env.AGENT_HUB_CTX_TOTAL}"
   # The module's `llm.extraArgs`, appended to every llama backend after the
   # flags it emits. hosts/ac-box/configuration.nix argues each one: -rtr
   # (repack at load; disables mmap so the model is anonymous memory under
@@ -70,9 +75,16 @@ models:
   # after a compaction. The reviewer and utility keep their --cache-ram:
   # one slot each and no recurrent layers, so neither path applies.
   #
-  # Two slots (--parallel 2), each ${ctx} = 32768 of context: --ctx-size is
-  # the TOTAL this build splits across slots, and a llama-swap macro cannot
-  # multiply, so the total is literal -- change both when ${ctx} changes.
+  # Two slots on the box (homelab's llm.parallel), each ${ctx} of context:
+  # --ctx-size is the TOTAL this build splits evenly across slots (ik
+  # 3bb386e, examples/server/server-context.cpp: n_ctx_slot = n_ctx /
+  # n_parallel), so the flag reads ${ctx_total}, not ${ctx}. A llama-swap
+  # macro cannot multiply, so the product is taken where both factors are
+  # set: homelab's stub renders AGENT_HUB_CTX_TOTAL = llm.contextSize *
+  # llm.parallel beside AGENT_HUB_CTX and AGENT_HUB_PARALLEL
+  # (hosts/ac-box/configuration.nix), one spelling of each number. Change
+  # the slot count or a slot's size there, not here. A client's context
+  # limit is one slot, ${ctx} -- the README's opencode entry says 32768.
   # One slot was the bottleneck on 18 Sep 2026 (homelab-7bu): with a
   # second agent session on this backend, 66 of 174 completions in one hour
   # queued behind another request and a four-minute bead-loop review took
@@ -84,7 +96,7 @@ models:
   coder:
     cmd: >
       ${llama_server} --model ${models}/Qwen3-Coder-Next-Q8_0-00001-of-00004.gguf
-      --host 127.0.0.1 --parallel 2 --ctx-size 65536 --threads ${threads}
+      --host 127.0.0.1 --parallel ${parallel} --ctx-size ${ctx_total} --threads ${threads}
       ${llama_extra} --ctx-checkpoints 0 --cache-ram 0 --port ${PORT}
     proxy: "http://127.0.0.1:${PORT}"
     checkEndpoint: /health
