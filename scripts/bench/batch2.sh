@@ -1,8 +1,30 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2317,SC2329 # the sweep below the guard is the record, unreachable on purpose
+# IT STOPS agent-hub-llm, DROPS THE BOX'S PAGE CACHE, turns
+# kernel.numa_balancing off and back on, and starts the unit again at the
+# end: the model server is down for the whole sweep, and every model loads
+# cold after it. Whether to do that is an operator's decision, each run --
+# never this script's default.
+#
 # Batch 2: NUMA placement + ik_llama.cpp. Stop the server, drop the (node1-only)
 # page cache, re-populate it MPOL_INTERLEAVE across both nodes via `cat` under
 # a systemd NUMAPolicy, verify placement, then bench mainline and ik on it.
 # Ends by restarting agent-hub-llm (it will mlock the interleaved pages).
+#
+# A DATED RECORD, and it refuses to run as-is. The 14 Sep 2026 sweep behind
+# docs/prefill-tuning.md's Finding 3 table, exactly as run, against the
+# bench.sh of 763d76a (`git show 763d76a:scripts/bench/bench.sh`: IK=1 was
+# its ik 3bb386e, no IK nixpkgs' llama-cpp b9190), inside background.slice's
+# fence (3-25,31-53); every cpuset and -t below is that fence's. Not
+# translated to the live layout (system.slice, cpus 0-27, 28 threads;
+# bench.sh's default): its page-in runs in background.slice, which has no
+# unit file now (systemd would synthesise one, unfenced); its question --
+# where the mmap'd pages land -- was settled by -rtr, which puts coder's
+# weights in anonymous memory under the unit's own NUMAPolicy; and its
+# mainline half is a build deployed nowhere. The document cites this file
+# as its table's exact source.
+echo "batch2.sh: refusing: a dated record of the 14 Sep 2026 fenced layout (background.slice, cores 3-25), not the live one; see its header" >&2
+exit 1
 set -u
 cd "$(dirname "$0")"
 run(){ ./bench.sh "$@" || true; }
