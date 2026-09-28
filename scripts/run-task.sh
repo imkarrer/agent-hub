@@ -50,9 +50,9 @@ TEST_CMD="${4:-}"
 # workspace" mutually exclusive there specifically: verified empirically
 # (touch/git both fail under --user with a world-writable workdir; --userns
 # =host --user 0:0 succeeds, i.e. only root-in-container lines up with the
-# real host uid). ac-box runs plain rootful Docker, where no such remap
-# exists and --user genuinely drops privileges -- detect which one this
-# host is rather than assume.
+# real host uid). Plain rootful Docker -- the Z840's until 26 Sep 2026; it
+# runs no Docker now -- has no such remap, and there --user genuinely drops
+# privileges. Detect which one this host is rather than assume.
 if docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q rootless; then
   # The image's own default (User=1000:1000, nix/runner-image.nix) hits the
   # exact same remap problem -- omitting --user here would inherit that

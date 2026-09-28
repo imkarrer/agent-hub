@@ -6,9 +6,10 @@
 # same order, same concurrency set (six models then; the three image
 # backends left 20 Sep 2026, homelab-b9u, and utility joined the same
 # day, homelab-8r5); `${env.*}` macros where the module had store paths
-# and host constants. hosts/ac-box/configuration.nix still carries the per-model reasoning (which quant,
-# why these flags) beside values nothing reads any more; when it moves,
-# it moves here.
+# and host constants. hosts/llm-box/configuration.nix still carries the
+# per-model reasoning (which quant, why these flags), beside the models'
+# kinds and descriptions its landing page reads; the values it argued for
+# left with the module. When the reasoning moves, it moves here.
 #
 # Run it with the environment's binaries on PATH, i.e. from `flox activate`:
 #   flox activate -- llama-swap -config llama-swap.yaml -listen 127.0.0.1:18900

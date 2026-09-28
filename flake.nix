@@ -2,15 +2,17 @@
   description = "Local coding-agent host: CPU/RAM-bound LLM serving + agent harness. Prototype on WSL2 NixOS, deploy to llm-box.";
 
   inputs = {
-    # Pinned to match the deploy host (ac-box, nixos-26.05), not unstable --
-    # the module is written and verified against that channel's llama-cpp
-    # (version 9190). This pin only governs standalone use of this repo
-    # (`nix build`, `nix flake check`, `nix develop` here). The platform
-    # layer (homelab) owns nixpkgs for the actual deployment: when this flake
-    # is consumed as a tenant input there, it sets
-    # `inputs.agent-hub.inputs.nixpkgs.follows = "nixpkgs"` so agent-hub
-    # never drags its own nixpkgs into the host closure. Do not bump this
-    # independently of that host's channel.
+    # Pinned to match the deploy host (llm-box, nixos-26.05), not unstable.
+    # Since homelab-158.11 (18 Sep 2026) this flake is no input of homelab
+    # and reaches no closure. The pin is the nixpkgs of this repo's own
+    # outputs: `nix build`, `nix flake check`, `nix develop` here, and the
+    # ik-llama-cpp the flox environment installs by `.flake` reference --
+    # built by this lock, not the host's (ADR 0009). A bump therefore
+    # changes that derivation once `flox upgrade ik-llama-cpp` re-locks it,
+    # and llm-box's environment pull realises the lock's outputs
+    # substitute-only (homelab modules/tenant/environment-pull.nix), so a
+    # binary no cache it trusts holds is refused there, not built. Do not
+    # bump this independently of that host's channel.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 

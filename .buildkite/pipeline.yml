@@ -1,17 +1,21 @@
 # GitHub push -> this file, on arcade-box's agent (queue=self). Source checks
-# only: nothing here touches the box, and nothing here can -- this tree
-# reaches ac-box as a flake input of homelab today, and as a flox
-# environment once ADR 0009's deploy edge exists (homelab-158.3).
+# only: nothing here touches llm-box, and nothing here can -- this tree
+# reaches it only as a flox environment (ADR 0009): llm-box's own
+# agent-hub-environment-poll reads this pipeline's buildkite/agent-hub
+# status on main's HEAD and stages a green sha (homelab-ygc.14), and
+# agent-hub-environment-pull applies it.
 #
 # Every step runs under the flox plugin, in the environment
 # .flox/env/manifest.toml declares -- the same environment a developer
 # activates and the box will run from, and the one homelab's
 # scripts/hub-gates.sh reproduces locally with flox pinned to the agent's
 # version. The tenant's own gate is scripts/ci_test.sh: llama-swap loads the
-# model table with the environment's binaries. The COMPOSITION gate -- does
-# ac-box still evaluate? (modules/agent-hub.nix is gone; homelab holds the unit) -- cannot
-# run here, because the host that composes it lives in homelab; it runs one
-# hop later, in homelab's bump-lock step, before anything is pushed there.
+# model table with the environment's binaries. There is no COMPOSITION gate
+# to run: since homelab-158.11 nothing of this tree is in llm-box's closure
+# (modules/agent-hub.nix is gone; homelab holds the whole unit, and its own
+# pipeline's flake check evaluates the host). What joins the two is the
+# eight AGENT_HUB_* variables homelab's stub sets, and ci_test.sh sets the
+# same eight itself.
 #
 # The first build after the manifest lands is slow: the flake package
 # (ik_llama.cpp) has no binary in the catalog, so the agent's nix builds it

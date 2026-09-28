@@ -4,8 +4,9 @@ Local, self-hosted coding agent. CPU/RAM only, no external inference API.
 
 ## Why this exists
 
-`ac-box` (the hp 840z) has a lot of spare RAM once the Assetto Corsa server and
-[home-arcade](https://github.com/imkarrer/home-arcade) hub are accounted for. No discrete
+`llm-box` (the HP Z840) has a lot of RAM, and since 26 Sep 2026 all of it is this repo's:
+the Assetto Corsa server and [home-arcade](https://github.com/imkarrer/home-arcade) hub
+that shared the machine moved to arcade-box (homelab ADR 0010). No discrete
 GPU on that box, so inference there is CPU-bound and slow token-for-token -- the tradeoff
 is a much bigger quantized model and a much bigger context window than a GPU-VRAM-limited
 setup could hold, entirely resident in RAM. (Earlier drafts said the dev machine had no GPU
@@ -20,9 +21,10 @@ Two machines, two jobs, same as the arcade project's Nix module split:
 | Role | Prototype the module and harness against a small model | Run the real thing against a large quantized model |
 | Model target | Qwen3-Coder-30B-A3B Q4 (tool calling) beside the Phase 1 Qwen2.5-Coder-14B Q4, behind llama-swap | 70B+ class, Q6/Q8 GGUF, large `--ctx-size` |
 
-Nothing here should assume it's the only thing on ac-box -- firewall scoping and the
-`agent-hub` system user follow the same LAN-interface-only pattern `arcade-hub.nix` uses,
-not global `allowedTCPPorts`.
+Since 26 Sep 2026 agent-hub is llm-box's only tenant, and it is still built as one of
+several: its ports are homelab's `scope = "lan"` claims -- 8100, and qdrant's 6333 --
+opened on the LAN interface only, not global `allowedTCPPorts`, and the model server runs
+as its own `agent-hub` system user.
 
 ## What this repo is: the environment is the tenant, the module is the skeleton
 
@@ -32,9 +34,9 @@ repo's **flox environment**, not from Nix:
 | | The environment (`.flox/env/manifest.toml`, `llama-swap.yaml`) | The unit skeleton, in homelab (`hosts/llm-box/tenants/agent-hub.nix`; `modules/agent-hub.nix` was deleted 18 Sep 2026) |
 | --- | --- | --- |
 | What it is | The tenant: the packages (ik_llama.cpp, llama-swap 224), the four-model table, the command. A tenant author writes no Nix. | The unit's skeleton in the closure: the `agent-hub` user, `/srv/agent-hub` and `/var/lib/agent-hub`, the firewall rule, `agent-hub-llm.service`'s name / user / restart policy / ordering, nginx (the landing page) and qdrant. It generates nothing that runs a model. |
-| Who runs it | A developer: `flox activate`. The box: `agent-hub-llm.service`'s `ExecStart=flox activate -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml -listen 127.0.0.1:8100`, set by homelab's unit stub (`homelab.tenants.agent-hub.environment` in `hosts/llm-box/configuration.nix`). | homelab imports it as a flake input, as before, until `homelab-158.11` makes the stub the whole unit. Without the stub the unit exists and fails on start with a message naming the stub -- never a unit that quietly serves the old way. |
-| How a change reaches the box | Push to `main`; CI (`.buildkite/pipeline.yml`) proves the table loads and publishes the `buildkite/agent-hub` commit status; the box has no CI agent (homelab ADR 0010), so its `agent-hub-environment-poll` stages a green sha within ten minutes (homelab-ygc.14) and `agent-hub-environment-pull` checks it out, warms it once online, restarts the unit. No closure switch. | A `flake.lock` bump in homelab (`bump-lock`), a closure switch at 03:30 -- only when a host-side thing changes: a directory, the landing page, qdrant. |
-| Host facts | Eight `AGENT_HUB_*` variables the unit's `Environment=` sets: models dir, threads, ctx, coder's slot count and its total ctx (ctx x slots), listen address, backend port, the table's path. The manifest's hook sets **none** of them under a unit; a missing one is llama-swap's refusal at load, `environment variable 'X' is not set`. | Declared as options (`llm.threads`, `llm.contextSize`, `llm.parallel`, `llm.port`, `llm.landingPage`, `lanAddress`, `dataDir`, `llm.backendPort`) that homelab's stub reads from, so a value has one spelling. Table fields ac-box still sets (`engine`, `extraArgs`, `concurrent`, a model's `modelPath`...) are declared but read by nothing; `llama-swap.yaml` is the table. |
+| Who runs it | A developer: `flox activate`. The box: `agent-hub-llm.service`'s `ExecStart=flox activate -d /var/lib/agent-hub/env -- llama-swap -config <env>/llama-swap.yaml -listen 127.0.0.1:8100`, set by homelab's unit stub (`homelab.tenants.agent-hub.environment` in `hosts/llm-box/configuration.nix`). | llm-box's closure, from homelab alone: since `homelab-158.11` (18 Sep 2026) the stub is the whole unit, and this tree is no flake input of homelab. Without the stub the unit exists and fails on start with a message naming the stub -- never a unit that quietly serves the old way. |
+| How a change reaches the box | Push to `main`; CI (`.buildkite/pipeline.yml`) proves the table loads and publishes the `buildkite/agent-hub` commit status; the box has no CI agent (homelab ADR 0010), so its `agent-hub-environment-poll` stages a green sha within ten minutes (homelab-ygc.14) and `agent-hub-environment-pull` checks it out, warms it once online, restarts the unit. No closure switch. | A homelab commit, which an operator switches onto llm-box by hand from a sha on origin (ADR 0010: no deploy edge there, and no `bump-lock` for this tree) -- only when a host-side thing changes: a directory, the landing page, qdrant. |
+| Host facts | Eight `AGENT_HUB_*` variables the unit's `Environment=` sets: models dir, threads, ctx, coder's slot count and its total ctx (ctx x slots), listen address, backend port, the table's path. The manifest's hook sets **none** of them under a unit; a missing one is llama-swap's refusal at load, `environment variable 'X' is not set`. | Declared as options (`llm.threads`, `llm.contextSize`, `llm.parallel`, `llm.port`, `llm.landingPage`, `lanAddress`, `dataDir`, `llm.backendPort`) that homelab's stub reads from, so a value has one spelling. The table's own fields (`engine`, `extraArgs`, `concurrent`, a model's `modelPath`...) left the options with the module (`homelab-158.11`, 18 Sep 2026); `llama-swap.yaml` is the table. |
 
 ### What a developer runs
 
@@ -78,8 +80,8 @@ access. The goal was to prove a coding-capable model runs and answers at an acce
 context size before adding anything that can act on a repo; it does (the numbers are
 below).
 
-**Phase 2 (2a and 2b proven out on this dev box; 2c/ac-box not started): the autonomous
-runner.**
+**Phase 2 (2a and 2b proven out on this dev box; 2c, running it on a server, not started):
+the autonomous runner.**
 Repo + task -> sandboxed edit -> draft PR, via [`aider`](https://aider.chat) (not
 OpenHands or OpenCode -- see below) pointed at the Phase 1 server as its LLM backend.
 This is a materially bigger security surface than Phase 1 or than anything in
@@ -95,7 +97,7 @@ that don't hold up yet:
 
 | Precondition | Status | Reality |
 | --- | --- | --- |
-| Sandboxed execution -- container or VM, never as the `agent-hub` user on the host | **Met** | `scripts/run-task.sh` runs aider inside a Docker container (`nix/runner-image.nix`) built from a deliberately narrow image (no compilers, no package managers), with `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, `--memory 4g`, and a non-root `--user` (see below for the rootless-Docker exception). The host process (`agent-hub-run-task`) only launches and reaps the container; the model never runs code as the `agent-hub` host user. `services.agent-hub.runner.network.mode` now defaults to `"bridge"`: a dedicated Docker network plus a `DOCKER-USER` iptables allowlist scoped to `llama-server` + `github.com`, replacing the old unconditional `--network host` (see [`docs/network-isolation.md`](docs/network-isolation.md) for the full analysis, including why that fix holds on ac-box's actual rootful Docker but not on this dev box's rootless one -- the dev box still uses `network.mode = "host"` deliberately, gated behind an explicit `singleTenantHost` acknowledgement precisely because it is not a shared host). |
+| Sandboxed execution -- container or VM, never as the `agent-hub` user on the host | **Met** | `scripts/run-task.sh` runs aider inside a Docker container (`nix/runner-image.nix`) built from a deliberately narrow image (no compilers, no package managers), with `--cap-drop=ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, `--memory 4g`, and a non-root `--user` (see below for the rootless-Docker exception). The host process (`agent-hub-run-task`) only launches and reaps the container; the model never runs code as the `agent-hub` host user. `services.agent-hub.runner.network.mode` now defaults to `"bridge"`: a dedicated Docker network plus a `DOCKER-USER` iptables allowlist scoped to `llama-server` + `github.com`, replacing the old unconditional `--network host` (see [`docs/network-isolation.md`](docs/network-isolation.md) for the full analysis, including why that fix holds under rootful Docker, which the Z840 ran when that was written and has not run since 26 Sep 2026, but not on this dev box's rootless one -- the dev box still uses `network.mode = "host"` deliberately, gated behind an explicit `singleTenantHost` acknowledgement precisely because it is not a shared host). |
 | GitHub credentials scoped to specific repos, stored via `sops-nix` | **Half met** | Repo scoping exists and is enforced twice: the PAT itself should be a fine-grained token scoped to one repo (a human/operator responsibility, not something Nix can verify), and `services.agent-hub.runner.allowedRepos` is a second, defense-in-depth allowlist the generated `agent-hub-run-task` script checks before it will touch a repo (module assertion also requires `allowedRepos != []`). **But**: `sops-nix` storage is not done. `githubTokenFile` is a plain option of type `nullOr path` -- at invocation time it just needs to point at a readable file; nothing decrypts it via `sops-nix`. 2a's proof-out used a fine-grained PAT for one disposable scratch repo, stored outside git but still a plain file. Wiring real `sops-nix` secret storage is explicitly still open work. |
 | Human approval before PR merge | **Met** | `scripts/run-task.sh` always runs `gh pr create --draft`; there is no `gh pr merge`, no auto-merge flag, and no code path in this repo that can merge a PR. Merging is a human action outside this tool, same as `nixos-rebuild switch` is a human action on llm-box. |
 
@@ -128,8 +130,9 @@ backend, not spare parallelism to coordinate).
   destinations. **Since addressed** (beads homelab-bqo.20, see
   [`docs/network-isolation.md`](docs/network-isolation.md)): the module now defaults
   `services.agent-hub.runner.network.mode` to a scoped Docker bridge + egress allowlist,
-  which works cleanly on ac-box's actual (rootful) Docker but, as this same investigation
-  found, does *not* work under this dev box's rootless Docker without weakening a
+  which works cleanly on rootful Docker (what the Z840 ran when this was investigated; it
+  has run no Docker since 26 Sep 2026) but, as this same investigation found, does *not*
+  work under this dev box's rootless Docker without weakening a
   security default that's blocking it on purpose -- so this WSL2 box specifically still
   runs `network.mode = "host"`, opted into explicitly rather than left as an unexamined
   default.
@@ -174,9 +177,10 @@ but it's the *correct* one there: rootless Docker's own convention maps containe
 to the real host user, while any non-zero container UID gets shoved into a subordinate
 range (`/etc/subuid`) that never matches the bind-mounted workdir's owner. Verified
 empirically on this dev box -- `--user 1000:1000` against a world-writable workdir still
-gets `Permission denied`, `--userns=host --user 0:0` succeeds. ac-box runs plain rootful
-Docker, where no such remap exists and a genuinely unprivileged UID just works. Detected
-per-host rather than assumed, same pattern as the network isolation work.
+gets `Permission denied`, `--userns=host --user 0:0` succeeds. Plain rootful Docker --
+the Z840's until 26 Sep 2026; it runs no Docker now -- has no such remap, and there a
+genuinely unprivileged UID just works. Detected per-host rather than assumed, same pattern
+as the network isolation work.
 
 Not done yet: `sops-nix` credential storage (`githubTokenFile` currently points at a
 plain file, which is fine for this box's scratch-repo PAT but not for a real
@@ -213,7 +217,7 @@ set per host -- see `modules/agent-hub.nix` for the full option set):
 # Host prerequisite, outside this repo -- rootless Docker enabled via
 # /etc/nixos/configuration.nix's virtualisation.docker.rootless.enable,
 # then `nixos-rebuild switch`. Not tracked here since it's host config,
-# not project config; the ac-box module will set this up properly.
+# not project config. No deployed host provides it yet: llm-box runs no Docker.
 nix build .#runner-image && docker load -i result
 
 agent-hub-run-task <repo-url> "<task description>" [base-branch] [test-cmd]
@@ -312,11 +316,10 @@ into it yet. `scripts/vectors-smoke.sh` embeds three sentences, upserts them, se
 fourth and checks the nearest hit, then drops the collection -- the proof the pair works.
 
 
-**Two pins, two owners.** The *module* is composed into ac-box's closure by `homelab`,
-which owns `nixpkgs` for the whole closure and sets
-`inputs.agent-hub.inputs.nixpkgs.follows = "nixpkgs"`; this flake's own
-`inputs.nixpkgs.url` (`nixos-26.05`) governs only standalone use (`nix build`, `nix flake
-check`, `nix develop`) and never reaches the built closure. The *environment* is pinned by
+**Two pins, two owners.** homelab's `nixpkgs` builds llm-box's closure, this tenant's unit
+stub, nginx and qdrant included, and nothing of this tree: since `homelab-158.11` (18 Sep
+2026) this flake is no input of homelab, so its own `inputs.nixpkgs.url` (`nixos-26.05`)
+never reaches a closure. The *environment* is pinned by
 `.flox/env/manifest.lock`: the fork at this repo's own rev (so its nixpkgs is this
 flake's, not the host's -- the point of ADR 0009), llama-swap 224
 from the catalog. The flag audit that used to live here ("every flag this module passes
@@ -324,9 +327,12 @@ exists in b9190") is now `scripts/ci_test.sh`'s: llama-swap loads the table with
 environment's binaries on every push, and a flag the fork does not know fails there.
 
 **Port note:** `services.agent-hub.llm.port` defaults to `8100`, and homelab's stub builds
-`AGENT_HUB_LISTEN` from it. That default is a shared-host allocation, not a free choice --
-ac-box's Assetto Corsa tenant reserves the contiguous HTTP block `8081`-`8096` (8081 + 16
-lobby slots), and `8100` sits outside every range reserved on that box today. It is not
+`AGENT_HUB_LISTEN` from it. The number was a shared-host allocation, not a free choice:
+while the Z840 also ran the Assetto Corsa tenant, that tenant reserved the contiguous HTTP
+block `8081`-`8096` (8081 + 16 lobby slots), and `8100` sat outside every range reserved
+there. Since 26 Sep 2026 that block is arcade-box's; on llm-box this tenant's claims
+(`8100`, and qdrant's `6333`) are the only ones, and what reaches the server names
+`192.168.1.51:8100` -- opencode, bead-loop, arcade-box's Prometheus. It is not
 derived from any port registry here; if `homelab`'s tenant port registry ever claims `8100`
 for something else, this default has to move again, not be assumed still safe. The
 backends' loopback ports (`llm.backendPort`, 18100 up) are not a LAN allocation and not
