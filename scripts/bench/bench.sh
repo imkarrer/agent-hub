@@ -27,11 +27,12 @@
 # running, or its FLOX_ENV without one) and neither IK_BIN nor MAIN_BIN set,
 # or no -t in the args and no AGENT_HUB_THREADS to default it from.
 #
-# The live server can stay up, but it shares nothing with a run: -rtr
-# (llama-swap.yaml's llama_extra) makes coder's weights anonymous memory.
-# Without -rtr a run maps the GGUF into page cache (pages already cached keep
-# the NUMA placement they have); with it, the run allocates its own copy,
-# ~85 GB for coder -- `free -g` on the box first when both 80Bs are resident.
+# The live server can stay up, but a run of coder's GGUF (the default) shares
+# no pages with it: -rtr (llama-swap.yaml's llama_extra) makes the server's
+# copy anonymous memory. Without -rtr a run maps the GGUF into page cache
+# (pages already cached keep the NUMA placement they have); with it, the run
+# allocates its own copy, ~85 GB for coder -- `free -g` on the box first when
+# both 80Bs are resident.
 #
 # Env:
 #   MODEL       the GGUF (default: coder's); a model the table gives its own
@@ -79,7 +80,7 @@ if [ -n "${MAIN_BIN:-}" ]; then
   BIN=$MAIN_BIN; flavor=main; OUT="-o jsonl --no-warmup --progress"
 else
   BIN=${IK_BIN:-$(fact DeployedBin)}; flavor=ik; OUT="-o json -w 0"
-  [ -n "$BIN" ] || refuse "no deployed llama-bench: agent-hub-llm is $(fact ActiveState) and its FLOX_ENV ('$(fact FLOX_ENV)') has no bin/llama-bench. Start the unit (a model-server restart, the operator's call) or set IK_BIN or MAIN_BIN"
+  [ -n "$BIN" ] || refuse "no deployed llama-bench: agent-hub-llm is $(fact ActiveState) and its FLOX_ENV ('$(fact FLOX_ENV)') has no bin/llama-bench. Starting the model server is the operator's call; or set IK_BIN or MAIN_BIN"
 fi
 pkg=${BIN#/nix/store/}; pkg=${pkg%%/*}; ver=${pkg##*-}   # <hash>-llama-cpp-3bb386e -> 3bb386e
 build=$flavor-${ver:-local}
