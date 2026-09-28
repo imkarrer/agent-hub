@@ -1,5 +1,19 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2317,SC2329 # the sweep below the guard is the record, unreachable on purpose
 # Batch 4: combine the batch-3 winners and check them at realistic prompt sizes.
+#
+# A DATED RECORD, and it refuses to run as-is. The 14 Sep 2026 follow-up to
+# batch3.sh behind the 4k and 8k numbers in docs/prefill-tuning.md's
+# "remaining flags" table, exactly as run, against the bench.sh of 763d76a
+# (`git show 763d76a:scripts/bench/bench.sh`: IK=1 was its ik 3bb386e), on
+# the same shape -- AllowedCPUs=3-25, 23 threads, interleave, inside
+# background.slice. Not translated to the live layout (system.slice, cpus
+# 0-27, 28 threads): its -t 22 lines only mean "one core short of the
+# fence's 23", and the document cites this file as those numbers' exact
+# source. The prompt-size question on the live layout is bench.sh with no
+# UNITPROPS and no -t, -p 4096 or -p 8192, under a new name prefix.
+echo "batch4.sh: refusing: a dated record of the 14 Sep 2026 fenced layout (background.slice, cores 3-25), not the live one; see its header" >&2
+exit 1
 set -u
 cd "$(dirname "$0")"
 run(){ ./bench.sh "$@" || true; }
