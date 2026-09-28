@@ -5,10 +5,12 @@
 # agent-hub-llm runs, with one summary line per test appended to
 # results/all.jsonl. The placement is read off the unit on every run, never
 # written here: Slice, AllowedCPUs, NUMAPolicy and NUMAMask from `systemctl
-# show`; the llama-bench and the thread count from its main process's
-# environment -- FLOX_ENV, the flox environment llama-swap.yaml takes
-# llama-server from, and AGENT_HUB_THREADS -- because the unit has
-# restartIfChanged = false, so its file can be ahead of what is serving.
+# show` -- the loaded unit, which is the running placement unless a switch
+# changed it since the unit last started; the llama-bench and the thread
+# count from its main process's environment -- FLOX_ENV, the flox
+# environment llama-swap.yaml takes llama-server from, and
+# AGENT_HUB_THREADS -- because the unit has restartIfChanged = false, so
+# its file can be ahead of what is serving.
 # The version before this one wrote background.slice and cores 3-25 in, and
 # once homelab-ygc.13 removed that slice a run would have landed in one
 # systemd synthesises on the spot, no cpuset and default weight, measuring
