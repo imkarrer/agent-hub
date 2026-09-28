@@ -62,7 +62,7 @@ the box's version.
 ### What the box runs
 
 The same environment at a sha, checked out to `/var/lib/agent-hub/env` by the pull
-unit, activated by the stub with the box's seven values, in `system.slice` with the
+unit, activated by the stub with the box's eight values, in `system.slice` with the
 cpuset and NUMA policy the host sets on the unit -- `AllowedCPUs=0-27`, every physical
 core and none of the SMT siblings, and `NUMAPolicy=interleave` over both nodes -- at 28
 threads. No slice fences it since homelab-ygc.13 (26 Sep 2026): agent-hub is the box's
