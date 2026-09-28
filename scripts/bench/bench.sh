@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bench.sh <name> [llama-bench args...]
 #
-# One llama-bench run on ac-box, as a transient systemd unit placed where
+# One llama-bench run on llm-box, as a transient systemd unit placed where
 # agent-hub-llm runs, with one summary line per test appended to
 # results/all.jsonl. The placement is read off the unit on every run, never
 # written here: Slice, AllowedCPUs, NUMAPolicy and NUMAMask from `systemctl
@@ -52,7 +52,7 @@
 #   IK_BIN      an ik_llama.cpp llama-bench other than the deployed one
 #   MAIN_BIN    a mainline llama.cpp llama-bench instead (its output flags
 #               differ); nothing deployed is mainline
-# Requires: ssh ac-box (root), jq (nix develop provides it).
+# Requires: ssh llm-box (root), jq (nix develop provides it).
 set -euo pipefail
 refuse() { echo "bench.sh: refusing: $*" >&2; exit 1; }
 name=${1:?usage: bench.sh <name> [llama-bench args...]}; shift
@@ -62,7 +62,7 @@ PRE=${PRE:-true}
 UNITPROPS=${UNITPROPS:-}
 
 # KEY=value lines about the unit, from the box; quoted, so nothing expands here.
-facts=$(ssh ac-box bash -s <<'EOF'
+facts=$(ssh llm-box bash -s <<'EOF'
 u=agent-hub-llm.service
 systemctl show "$u" -p LoadState -p ActiveState -p MainPID -p Slice -p AllowedCPUs -p NUMAPolicy -p NUMAMask
 pid=$(systemctl show "$u" -p MainPID --value)
@@ -72,9 +72,9 @@ if [ "${pid:-0}" != 0 ]; then
   [ -z "$env" ] || [ ! -x "$env/bin/llama-bench" ] || echo "DeployedBin=$(readlink -f "$env/bin/llama-bench")"
 fi
 EOF
-) || refuse "could not read agent-hub-llm on ac-box over ssh"
+) || refuse "could not read agent-hub-llm on llm-box over ssh"
 fact() { sed -n "s/^$1=//p" <<<"$facts"; }
-[ "$(fact LoadState)" = loaded ] || refuse "agent-hub-llm is not a unit on ac-box (LoadState=$(fact LoadState))"
+[ "$(fact LoadState)" = loaded ] || refuse "agent-hub-llm is not a unit on llm-box (LoadState=$(fact LoadState))"
 slice=$(fact Slice)
 [ -n "$slice" ] || refuse "agent-hub-llm names no slice"
 
@@ -110,7 +110,7 @@ mkdir -p "$here/results"
 args=$(printf '%q ' "$@")
 echo "bench.sh: $name: $placement $BIN $*" >&2
 start=$(date -Is)
-ssh ac-box "{ $PRE; } >&2; systemd-run --quiet --wait --pipe --collect --unit=prefill-bench-$name-\$RANDOM $placement \
+ssh llm-box "{ $PRE; } >&2; systemd-run --quiet --wait --pipe --collect --unit=prefill-bench-$name-\$RANDOM $placement \
   $BIN -m $MODEL $OUT -r $REPS $args" \
   > "$here/results/$name.out" 2> "$here/results/$name.err" || { echo "FAILED $name (see results/$name.err)"; tail -5 "$here/results/$name.err"; exit 1; }
 jq -c --arg name "$name" --arg start "$start" --arg args "$*" --arg build "$build" --arg placement "$placement" --arg bin "$BIN" \
