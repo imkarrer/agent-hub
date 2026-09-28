@@ -73,7 +73,7 @@ shellcheck.pkg-path = "shellcheck"
 ## Why the split (homelab-158.1 review, finding 1): this hook used to
 ## default every variable to the BOX's value -- 23 threads, /srv/agent-hub
 ## /models, :8100 -- so the stub in hosts/ac-box/configuration.nix could
-## have omitted any of the eight and the unit would still have come up
+## have omitted any of them and the unit would still have come up
 ## right, by coincidence, with the omission invisible; and the same 23
 ## threads were wrong on every other machine. Now the unit's Environment=
 ## is the whole set of host facts, and a missing one is llama-swap's own
@@ -106,8 +106,9 @@ on-activate = '''
     # auto-detect (on the box that is 56 threads and the race servers
     # starve; the box says 23).
     : "${AGENT_HUB_THREADS:=4}"
-    # --ctx-size for the chat models (the box says 32768; the embedding
-    # model has its own 8192 in llama-swap.yaml regardless).
+    # One slot's context: reviewer's --ctx-size, and each of coder's
+    # slots (the box says 32768; embed and utility set their own in
+    # llama-swap.yaml).
     : "${AGENT_HUB_CTX:=8192}"
     # coder's slots, and its --ctx-size across them (llama-swap.yaml's
     # `parallel` and `ctx_total`). One slot on a laptop (the box says 2).
