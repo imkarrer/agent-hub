@@ -90,9 +90,10 @@ models:
   # queued behind another request and a four-minute bead-loop review took
   # 40. Decode on this MoE is memory-bandwidth bound, so batching two
   # sequences reads the weights once for both; prefill (compute bound)
-  # shares the 23 threads, no worse than the serial wait it replaces. KV for
-  # a second 32k slot is small: Qwen3-Next's hybrid attention keeps few
-  # full-attention layers. Not the reviewer backend: one client at a time.
+  # shares the unit's ${threads} threads (28 since homelab-ygc.13), no
+  # worse than the serial wait it replaces. KV for a second 32k slot is
+  # small: Qwen3-Next's hybrid attention keeps few full-attention layers.
+  # Not the reviewer backend: one client at a time.
   coder:
     cmd: >
       ${llama_server} --model ${models}/Qwen3-Coder-Next-Q8_0-00001-of-00004.gguf
@@ -118,10 +119,12 @@ models:
   # approved it, calling the miss "insightful"), approved the two clean
   # ones and caught an ADR-number inconsistency in one; its one false
   # reject expected a two-repo change in one diff. Instruct: 1 of 5 in
-  # the right direction, two non-answers. ~12 tok/s end to end per review. It REPLACES instruct: the box holds
+  # the right direction, two non-answers. ~12 tok/s end to end per review. It REPLACES instruct: the box held
   # two 80-GiB-class models beside utility and embed, not three
-  # (background.slice is 203 GiB; both Qwens alone were 162 GiB anonymous),
-  # and the review call was most of what instruct did. The aliases are the
+  # (background.slice was 203 GiB on 20 Sep; both Qwens alone were 162 GiB
+  # anonymous), and the review call was most of what instruct did. The unit
+  # has had no slice limit since homelab-ygc.13 (system.slice,
+  # MemoryMax=infinity: the host's 251 GiB). The aliases are the
   # hosted model names inquire-platform hard-codes, so its Anthropic SDK
   # pointed at this port lands here unchanged -- its rubric scoring now
   # runs on this model. The instruct GGUF stays on disk for a while.
@@ -131,8 +134,8 @@ models:
   # (the repack lands the MXFP4 tensors on a scalar path), without it
   # 110 / 14.1 -- faster decode than coder's 13 (5.1B active vs 3B, but
   # 4-bit weights). So this backend runs mmap'd: its weights are page
-  # cache, not anonymous memory, and count against the slice as
-  # reclaimable -- under pressure they are what gets dropped and re-read
+  # cache, not anonymous memory, and reclaimable -- under memory
+  # pressure they are what gets dropped and re-read
   # from NVMe (the load is ~4 s from cache, ~40 s cold). No --mlock: the
   # unit has no RLIMIT_MEMLOCK for 59 GiB. Tool calls parse under --jinja
   # (finish_reason tool_calls, arguments as JSON; probed 20 Sep) and the
@@ -191,11 +194,13 @@ models:
   # 80B MoE's 13 (3B active). A 200-token answer is ~20 s, not the < 5 s
   # the bead hoped for; a title is ~3 s. If that matters, the swap is one
   # line: Q4_K_M (~2.5 GB, ~20 tok/s expected) or gpt-oss-20b (3.6B
-  # active, ~25). Eight threads, not the unit's 23: decode loses 17 % and
-  # prefill 60 %, and coder keeps 15 cores for its own prefill while this
-  # one answers -- the point is that a cheap call never queues behind a
-  # review, not that it is fast. Own ctx (16k is plenty for a summary) and
-  # a small prompt cache; KV at 16k with FA is ~1.2 GiB, ~6 GiB resident.
+  # active, ~25). Eight threads, not the unit's ${threads} (28 since
+  # homelab-ygc.13): against the old fence's 23 in the 20 Sep table above,
+  # eight cost 17 % of decode and 60 % of prefill, and they leave coder
+  # 20 of the unit's 28 cores for its own prefill while this one answers
+  # -- the point is that a cheap call never queues behind a review, not
+  # that it is fast. Own ctx (16k is plenty for a summary) and a small
+  # prompt cache; KV at 16k with FA is ~1.2 GiB, ~6 GiB resident.
   utility:
     cmd: >
       ${llama_server} --model ${models}/Qwen3-4B-Instruct-2507-Q8_0.gguf

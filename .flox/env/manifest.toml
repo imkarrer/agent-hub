@@ -103,8 +103,9 @@ on-activate = '''
     # `DEST=$PWD/models scripts/fetch-model.sh <name>` fills it.
     : "${AGENT_HUB_MODELS:=$FLOX_ENV_PROJECT/models}"
     # --threads / -t for every backend. Four: a laptop's share, never
-    # auto-detect (on the box that is 56 threads and the race servers
-    # starve; the box says 23).
+    # auto-detect (on the box that is all 56 threads, SMT siblings too,
+    # and keeping off the siblings was worth ~20 % prefill in
+    # docs/prefill-tuning.md; the box says 28, one per physical core).
     : "${AGENT_HUB_THREADS:=4}"
     # One slot's context: reviewer's --ctx-size, and each of coder's
     # slots (the box says 32768; embed and utility set their own in
