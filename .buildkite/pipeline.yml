@@ -20,8 +20,12 @@
 # The first build after the manifest lands is slow: the flake package
 # (ik_llama.cpp) has no binary in the catalog, so the agent's nix builds it
 # from source. The plugin's post-command hook then pushes the environment's
-# closure to the MinIO cache (S3_CACHE_PUSH), so every later cold container
-# substitutes instead.
+# closure to the CI cache, so every later cold container substitutes
+# instead. The agent's S3_CACHE_* say which cache and whether to push
+# (ac-host's compose file, homelab's ci-env); this file says neither. A
+# job-level value replaces the agent's, so a copy here would pin this
+# pipeline to the cache it names when homelab moves the agent's (ADR 0013,
+# MinIO to Garage; homelab-ygc.20.2 removed the copy).
 #
 # ...and on two cores, not four. Build 6 (17 Sep 2026) OOM-killed cc1plus:
 # the agent's container sees nproc=4 (batch's two physical cores plus SMT
@@ -37,13 +41,6 @@
 
 agents:
   queue: self
-
-env:
-  S3_CACHE_BUCKET: flox-binary-cache
-  S3_CACHE_ENDPOINT: http://minio:9000
-  S3_CACHE_REGION: us-east-1
-  S3_CACHE_PUBLIC_KEY: "flox-binary-cache-1:pSpP6x540XtBh+IMvmW8XrRHJDtIi+b31uvvIA0PyR0= flox-binary-cache-2:ESa71iIsMeX6Wu7EBiXXZlJraWI0HF4xdOF/ivG4UTo="
-  S3_CACHE_PUSH: "true"
 
 steps:
   - label: ":flox: llama-swap serves the model table"
